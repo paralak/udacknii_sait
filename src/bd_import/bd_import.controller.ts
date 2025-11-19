@@ -13,12 +13,6 @@ export class Bd_importController {
 
     @Get('get_codes_list')
     getCodesList() {
-        return {
-            codes: [
-                123,
-                321,
-                222,
-            ]
-        }
+        return Bd_importService.findAllItems()
     }
 }
