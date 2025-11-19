@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Exclusion, Repository } from 'typeorm';
 import { Item } from 'src/db/item.entity';
 import { Stock } from 'src/db/stock.entity';
+import { Sales } from 'src/db/sales.entity';
+import { Peremesh } from 'src/db/peremesh.module';
+import { Postavki } from 'src/db/postavki.module';
+import { Spisania } from 'src/db/spisania.module';
 
 @Injectable()
 export class Bd_importService {
@@ -12,6 +16,18 @@ export class Bd_importService {
 
         @InjectRepository(Stock)
         private readonly stocksRepository: Repository<Stock>,
+
+        @InjectRepository(Sales)
+        private readonly salesRepository: Repository<Sales>,
+
+        @InjectRepository(Peremesh)
+        private readonly peremeshRepository: Repository<Peremesh>,
+
+        @InjectRepository(Postavki)
+        private readonly postavkiRepository: Repository<Postavki>,
+
+        @InjectRepository(Spisania)
+        private readonly spisaniaRepository: Repository<Spisania>,
     ) {}
 
     getHello(): string {
@@ -49,7 +65,34 @@ export class Bd_importService {
                         st.value = rrr['stock'];
                         this.stocksRepository.save(st);
                     }
-
+                    if (rrr.hasOwnProperty('sales')) {
+                        const st = new Sales();
+                        st.code = code;
+                        st.date = isodate;
+                        st.value = rrr['sales'];
+                        this.salesRepository.save(st);
+                    }
+                    if (rrr.hasOwnProperty('write-off')) {
+                        const st = new Sales();
+                        st.code = code;
+                        st.date = isodate;
+                        st.value = rrr['write-off'];
+                        this.spisaniaRepository.save(st);
+                    }
+                    if (rrr.hasOwnProperty('supplies')) {
+                        const st = new Sales();
+                        st.code = code;
+                        st.date = isodate;
+                        st.value = rrr['supplies'];
+                        this.postavkiRepository.save(st);
+                    }
+                    if (rrr.hasOwnProperty('move')) {
+                        const st = new Sales();
+                        st.code = code;
+                        st.date = isodate;
+                        st.value = rrr['move'];
+                        this.peremeshRepository.save(st);
+                    }
                 }
 
             }
