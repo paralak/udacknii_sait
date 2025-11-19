@@ -1,4 +1,4 @@
-import {Controller, Get} from '@nestjs/common';
+import {Body, Controller, Get, Post} from '@nestjs/common';
 import {Bd_importService} from './bd_import.service';
 
 @Controller('bd_import')
@@ -13,6 +13,11 @@ export class Bd_importController {
 
     @Get('get_codes_list')
     getCodesList() {
-        return this.bd_importService.findAllItems()
+        return this.bd_importService.getCodes();
+    }
+
+    @Post('post_datas')
+    sendDatas(@Body() args: object) {
+        return this.bd_importService.sendDatas(args);
     }
 }
