@@ -10,4 +10,15 @@ export class Bd_importController {
     getHello(): string {
         return this.Bd_importService.getHello();
     }
+
+    @Get('get_codes_list')
+    getCodesList() {
+        return {
+            codes: [
+                123,
+                321,
+                222,
+            ]
+        }
+    }
 }
