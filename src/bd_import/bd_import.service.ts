@@ -4,9 +4,9 @@ import { Exclusion, Repository } from 'typeorm';
 import { Item } from 'src/db/item.entity';
 import { Stock } from 'src/db/stock.entity';
 import { Sales } from 'src/db/sales.entity';
-import { Peremesh } from 'src/db/peremesh.module';
-import { Postavki } from 'src/db/postavki.module';
-import { Spisania } from 'src/db/spisania.module';
+import { Peremesh } from 'src/db/peremesh.entity';
+import { Postavki } from 'src/db/postavki.entity';
+import { Spisania } from 'src/db/spisania.entity';
 
 @Injectable()
 export class Bd_importService {
