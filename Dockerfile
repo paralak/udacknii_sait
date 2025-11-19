@@ -6,9 +6,12 @@ WORKDIR /app
 
 COPY package*.json .
 RUN npm ci
+RUN npm install @nestjs/typeorm
+RUN npm install typeorm
 
 COPY --chown=node:node . .
 RUN npm run build && npm prune --omit=dev
+
 
 # Final run stage
 FROM node:lts-alpine
