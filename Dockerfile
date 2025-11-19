@@ -6,7 +6,6 @@ WORKDIR /app
 
 COPY package*.json .
 RUN npm ci
-RUN npm install --save @nestjs/typeorm typeorm mysql2
 
 COPY --chown=node:node . .
 RUN npm run build && npm prune --omit=dev
