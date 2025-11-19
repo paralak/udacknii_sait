@@ -18,7 +18,14 @@ export class Bd_importService {
 
     }
 
-    async findAllItems(): Promise<Item[]> {
-        return this.itemsRepository.find();
+    async findAllItems() {
+        const lst = this.itemsRepository.find();
+        const codes = [];
+        (await lst).forEach(element => {
+            codes.push(element.code)
+        });
+        return {
+            codes:codes,
+        }
     }
 }
