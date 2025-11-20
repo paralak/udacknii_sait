@@ -55,40 +55,41 @@ export class Bd_importService {
                 
                 const element = args[key];
                 const isodate = key;
-                for (const code in element) {
-                    const rrr = element[code];
+                for (let i = 0; i < element.lenght; ++i) {
+                    const rrr = element[i];
+                    if (!rrr.hasOwnProperty('code')) continue;
 
                     if (rrr.hasOwnProperty('stock')) {
                         const st = new Stock();
-                        st.code = code;
+                        st.code = rrr['code'];
                         st.date = isodate;
                         st.value = rrr['stock'];
                         this.stocksRepository.save(st);
                     }
                     if (rrr.hasOwnProperty('sales')) {
                         const st = new Sales();
-                        st.code = code;
+                        st.code = rrr['code'];
                         st.date = isodate;
                         st.value = rrr['sales'];
                         this.salesRepository.save(st);
                     }
                     if (rrr.hasOwnProperty('write-off')) {
                         const st = new Sales();
-                        st.code = code;
+                        st.code = rrr['code'];
                         st.date = isodate;
                         st.value = rrr['write-off'];
                         this.spisaniaRepository.save(st);
                     }
                     if (rrr.hasOwnProperty('supplies')) {
                         const st = new Sales();
-                        st.code = code;
+                        st.code = rrr['code'];
                         st.date = isodate;
                         st.value = rrr['supplies'];
                         this.postavkiRepository.save(st);
                     }
                     if (rrr.hasOwnProperty('move')) {
                         const st = new Sales();
-                        st.code = code;
+                        st.code = rrr['code'];
                         st.date = isodate;
                         st.value = rrr['move'];
                         this.peremeshRepository.save(st);
