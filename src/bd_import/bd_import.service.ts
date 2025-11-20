@@ -52,11 +52,16 @@ export class Bd_importService {
     async sendDatas(args: object) {
         try {
             for (const key in args) {
+                console.log(args);
                 
                 const element = args[key]['items'];
                 const isodate = key;
+                console.log(element);
+                
                 for (let i = 0; i < element.lenght; ++i) {
                     const rrr = element[i];
+                    console.log(rrr);
+                    
                     if (!rrr.hasOwnProperty('code')) continue;
 
                     if (rrr.hasOwnProperty('stock')) {
