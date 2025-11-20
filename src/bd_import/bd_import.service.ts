@@ -53,7 +53,7 @@ export class Bd_importService {
         try {
             for (const key in args) {
                 
-                const element = args[key];
+                const element = args[key]['items'];
                 const isodate = key;
                 for (let i = 0; i < element.lenght; ++i) {
                     const rrr = element[i];
