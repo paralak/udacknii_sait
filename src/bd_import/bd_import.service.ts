@@ -58,7 +58,7 @@ export class Bd_importService {
                 const isodate = key;
                 console.log(element);
                 
-                for (let i = 0; i < element.lenght; ++i) {
+                for (let i = 0; i < element.length; ++i) {
                     const rrr = element[i];
                     console.log(rrr);
                     
