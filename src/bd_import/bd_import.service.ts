@@ -83,7 +83,7 @@ export class Bd_importService {
                         const st = new Sales();
                         st.code = rrr['code'];
                         st.date = isodate;
-                        st.value = rrr['write-off'];
+                        st.value = rrr['writeoff'];
                         this.spisaniaRepository.save(st);
                     }
                     if (rrr.hasOwnProperty('supplies')) {
