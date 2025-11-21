@@ -79,7 +79,7 @@ export class Bd_importService {
                         st.value = rrr['sales'];
                         this.salesRepository.save(st);
                     }
-                    if (rrr.hasOwnProperty('write-off')) {
+                    if (rrr.hasOwnProperty('writeoff')) {
                         const st = new Sales();
                         st.code = rrr['code'];
                         st.date = isodate;
