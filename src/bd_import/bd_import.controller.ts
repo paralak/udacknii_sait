@@ -17,7 +17,7 @@ export class Bd_importController {
     }
 
     @Post('post_datas')
-    sendDatas(@Body() args: object) {
+    sendDatas(@Body() args: any) {
         return this.bd_importService.sendDatas(args);
     }
 }

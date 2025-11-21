@@ -49,13 +49,14 @@ export class Bd_importService {
         }
     }
 
-    async sendDatas(args: object) {
+    async sendDatas(args: any) {
         try {
-            for (const key in args) {
+
+            for (let j = 0; j < args.length; ++j) {
                 console.log(args);
                 
-                const element = args[key]['items'];
-                const isodate = key;
+                const element = args[j]['Items'];
+                const isodate = args[j]['Date'];
                 console.log(element);
                 
                 for (let i = 0; i < element.length; ++i) {
