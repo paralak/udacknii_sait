@@ -1,7 +1,7 @@
 import {Body, Controller, Get, Post} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
 
-@Controller('bd_import')
+@Controller('cliet_api')
 export class ClientAPIController {
     constructor(private readonly clientAPIService: ClientAPIService) {
     }
