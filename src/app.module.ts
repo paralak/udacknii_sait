@@ -4,6 +4,7 @@ import {AppService} from './app.service';
 import {Bd_importModule} from './bd_import/bd_import.module';
 import { DBModule } from './db/db.module'; 
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ClientAPIModule } from './client_api/client_api.module';
 
 @Module({
     imports: [
@@ -17,6 +18,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
             database: 'site_db',
             autoLoadEntities: true,
         }),
+        ClientAPIModule,
         DBModule,
     ],
     controllers: [AppController],
