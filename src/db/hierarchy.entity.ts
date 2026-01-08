@@ -13,4 +13,7 @@ export class Hierarchy {
 
     @Column()
     type: string;
+
+    @Column()
+    description: string;
 }
