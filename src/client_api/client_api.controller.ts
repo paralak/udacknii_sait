@@ -15,4 +15,16 @@ export class ClientAPIController {
     getHierarchyTree() {
         return this.clientAPIService.getHierarchyTree();
     }
+
+    @Get('check_token')
+        checkToken(@Query('token') token: string) {
+            if (!token) {
+            return {
+                status: 'error',
+                message: 'Токен не предоставлен',
+            };
+            }
+            
+            return this.clientAPIService.checkToken(token);
+        }
 }
