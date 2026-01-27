@@ -1,5 +1,6 @@
 import {Body, Controller, Get, Post} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
+import {Query} from '@nestjs/common';
 
 @Controller('client_api')
 export class ClientAPIController {
