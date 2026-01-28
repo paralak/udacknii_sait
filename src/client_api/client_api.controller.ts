@@ -14,11 +14,31 @@ export class ClientAPIController {
 
     @Get('get_hierarchy_tree')
     getHierarchyTree(@Headers() headers: Record<string, string>) {
-        // Логируем заголовки запроса
-        console.log(JSON.stringify(headers, null, 2));
+        const cookieHeader = headers['cookie'];
         
-        return this.clientAPIService.getHierarchyTree();
+        if (cookieHeader) {
+            // Используем регулярное выражение для поиска auth_token
+            const match = cookieHeader.match(/auth_token=([^;]+)/);
+            
+            if (match) {
+                var authToken = match[1];
+                console.log('Auth token:', authToken);
+            } else {
+                return {
+                    status: 'error',
+                    message: 'Токен не предоставлен',
+                };
+            }
+        } else {
+            return {
+                status: 'error',
+                message: 'Токен не предоставлен',
+            };
+        }
+        
+        return this.clientAPIService.getHierarchyTree(authToken);
     }
+
     @Get('check_token')
         checkToken(@Query('token') token: string) {
             if (!token) {

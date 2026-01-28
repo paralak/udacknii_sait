@@ -17,9 +17,67 @@ export class ClientAPIService {
         return 'Hello World from Client API!';
     }
 
-    async getHierarchyTree() {
-        const lst = this.itemsRepository.find();
-        return lst;
+    async getHierarchyTree(authToken: string) {
+        const lst = await this.itemsRepository.find();
+        let resp = await this.checkToken(authToken);
+
+        if (resp.status != 'valid') {
+          return resp;
+        }
+
+        let rlst = lst.filter((item) => {
+          return item.id == resp.userId;
+        })
+
+        let ridstop = []
+        let ridsbot = []
+
+        for (let i = 0; i < 20; i++) {
+          rlst.map((item)=>{
+            if (item.id in ridsbot) {
+              return;
+            }
+            if (item.parent_id in ridstop) {
+              return;
+            }
+            if (item.parent_id == resp.userId) {
+              return;
+            }
+            let np = lst.filter((item2) => {
+              return item2.id == item.parent_id;
+            })[0];
+            if (!np) {return;}
+            rlst.push(np);
+            ridstop.push(np.id);
+          });
+          lst.map((item)=>{
+            if (item.id in ridsbot) {
+              return;
+            }
+            if (item.parent_id in ridstop) {
+              return;
+            }
+            if (item.parent_id == resp.userId) {
+              return;
+            }
+            let op = rlst.filter((item2) => {
+              return item.parent_id == item2.id;
+            })[0];
+            if (!op) {
+              return;
+            }
+            rlst.push(op);
+            ridsbot.push(op.id);
+          })
+        }
+
+        lst.map((item) => {
+          if (item.type == 'Department' && !(item.id in ridstop) && !(item.id in ridsbot)) {
+            rlst.push(item);
+          }
+        });
+
+        return rlst;
     }
 
     async checkToken(tokenValue: string) {

@@ -57,11 +57,9 @@ export class Bd_importService {
                 
                 const element = args[j]['Items'];
                 const isodate = args[j]['Date'];
-                console.log(element);
                 
                 for (let i = 0; i < element.length; ++i) {
                     const rrr = element[i];
-                    console.log(rrr);
                     
                     if (!rrr.hasOwnProperty('code')) continue;
 
