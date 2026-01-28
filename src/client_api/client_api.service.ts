@@ -57,9 +57,6 @@ export class ClientAPIService {
             if (item.parent_id in ridstop) {
               return;
             }
-            if (item.parent_id == resp.userId) {
-              return;
-            }
             let op = rlst.filter((item2) => {
               return item.parent_id == item2.id;
             })[0];
