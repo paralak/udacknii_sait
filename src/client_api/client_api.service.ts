@@ -18,64 +18,91 @@ export class ClientAPIService {
     }
 
     async getHierarchyTree(authToken: string) {
-        const lst = await this.itemsRepository.find();
-        let resp = await this.checkToken(authToken);
+      const lst = await this.itemsRepository.find();
+      let resp = await this.checkToken(authToken);
 
-        if (resp.status != 'valid') {
+      if (resp.status != 'valid') {
           return resp;
-        }
+      }
 
-        let rlst = lst.filter((item) => {
+      // Начинаем с элементов, принадлежащих пользователю
+      let rlst = lst.filter((item) => {
           return item.id == resp.userId;
-        })
+      });
 
-        let ridstop = []
-        let ridsbot = []
+      let ridstop: number[] = [];  // ID элементов, добавленных как родители
+      let ridsbot: number[] = [];  // ID элементов, добавленных как дети
 
-        for (let i = 0; i < 20; i++) {
-          rlst.map((item)=>{
-            if (item.id in ridsbot) {
-              return;
-            }
-            if (item.parent_id in ridstop) {
-              return;
-            }
-            if (item.parent_id == resp.userId) {
-              return;
-            }
-            let np = lst.filter((item2) => {
-              return item2.id == item.parent_id;
-            })[0];
-            if (!np) {return;}
-            rlst.push(np);
-            ridstop.push(np.id);
+      for (let i = 0; i < 20; i++) {
+          // Добавляем родителей текущих элементов
+          rlst.forEach((item) => {
+              // Пропускаем, если элемент уже был добавлен как ребенок
+              if (ridsbot.includes(item.id)) {
+                  return;
+              }
+              
+              // Пропускаем, если родитель уже добавлен в верхние элементы
+              if (ridstop.includes(item.parent_id)) {
+                  return;
+              }
+              
+              // Пропускаем, если родитель - сам пользователь
+              if (item.parent_id == resp.userId) {
+                  return;
+              }
+              
+              // Ищем родительский элемент
+              let np = lst.find((item2) => {
+                  return item2.id == item.parent_id;
+              });
+              
+              if (!np) {
+                  return;
+              }
+              
+              // Добавляем родителя
+              rlst.push(np);
+              ridstop.push(np.id);
           });
-          lst.map((item)=>{
-            if (item.id in ridsbot) {
-              return;
-            }
-            if (item.parent_id in ridstop) {
-              return;
-            }
-            let op = rlst.filter((item2) => {
-              return item.parent_id == item2.id;
-            })[0];
-            if (!op) {
-              return;
-            }
-            rlst.push(item);
-            ridsbot.push(item.id);
-          })
-        }
 
-        lst.map((item) => {
-          if (item.type == 'Department' && !(item.id in ridstop) && !(item.id in ridsbot)) {
-            rlst.push(item);
+          // Добавляем детей текущих элементов
+          lst.forEach((item) => {
+              // Пропускаем, если элемент уже был добавлен как ребенок
+              if (ridsbot.includes(item.id)) {
+                  return;
+              }
+              
+              // Пропускаем, если родитель уже добавлен в верхние элементы
+              if (ridstop.includes(item.parent_id)) {
+                  return;
+              }
+              
+              // Ищем, есть ли элемент в rlst, который является родителем для текущего
+              let op = rlst.find((item2) => {
+                  return item.parent_id == item2.id;
+              });
+              
+              if (!op) {
+                  return;
+              }
+              
+              // Добавляем ребенка
+              rlst.push(item);
+              ridsbot.push(item.id);
+          });
+      }
+
+      // Добавляем все отделы, которые еще не были добавлены
+      lst.forEach((item) => {
+          if (item.type == 'Department' && 
+              !ridstop.includes(item.id) && 
+              !ridsbot.includes(item.id)) {
+              rlst.push(item);
           }
-        });
+      });
 
-        return rlst;
-    }
+      return rlst;
+  }
 
     async checkToken(tokenValue: string) {
     // Ищем токен по значению (не по id)
