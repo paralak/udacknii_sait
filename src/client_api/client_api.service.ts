@@ -66,8 +66,8 @@ export class ClientAPIService {
             if (!op) {
               return;
             }
-            rlst.push(op);
-            ridsbot.push(op.id);
+            rlst.push(item);
+            ridsbot.push(item.id);
           })
         }
 
