@@ -1,6 +1,7 @@
 import {Body, Controller, Get, Post, Headers} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
 import {Query} from '@nestjs/common';
+import { get } from 'http';
 
 @Controller('client_api')
 export class ClientAPIController {
@@ -37,6 +38,32 @@ export class ClientAPIController {
         }
         
         return this.clientAPIService.getHierarchyTree(authToken);
+    }
+
+    @Get('get_address_tree')
+    getAddressTree(@Headers() headers: Record<string, string>) {
+        const cookieHeader = headers['cookie'];
+
+        if (cookieHeader) {
+            // Используем регулярное выражение для поиска auth_token
+            const match = cookieHeader.match(/auth_token=([^;]+)/);
+            if (match) {
+                var authToken = match[1];
+                console.log('Auth token:', authToken);
+            } else {
+                return {
+                    status: 'error',
+                    message: 'Токен не предоставлен',
+                };
+            }
+        } else {
+            return {
+                status: 'error',
+                message: 'Токен не предоставлен',
+            };
+        }
+
+        return this.clientAPIService.getAddressTree(authToken);
     }
 
     @Get('check_token')
