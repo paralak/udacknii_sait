@@ -229,11 +229,17 @@ export class ClientAPIService {
         return item.type == 'Store';
       });
 
-      rlst2.push(...lst2.filter((item) => {
+      let rlst3 = rlst2.map((item)=>{
+        return lst2.filter((item2) => {
+            return item2.id == item.id;
+        })[0];
+      });
+
+      rlst3.push(...lst2.filter((item) => {
         return item.type == 'Address';
       }));
 
-      return rlst2;
+      return rlst3;
 
   }
 }
