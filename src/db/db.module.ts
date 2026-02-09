@@ -7,10 +7,10 @@ import { Spisania } from './spisania.entity';
 import { Sales } from './sales.entity';
 import { Postavki } from './postavki.entity';
 import { Token } from './token.entity';
-import { Adresses } from './adresses.entity';
+import { Addresses } from './addresses.entity';
 import { Hierarchy } from './hierarchy.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Item, Stock, Peremesh, Spisania, Sales, Postavki, Token, Adresses, Hierarchy])],
+  imports: [TypeOrmModule.forFeature([Item, Stock, Peremesh, Spisania, Sales, Postavki, Token, Addresses, Hierarchy])],
 })
 export class DBModule {}

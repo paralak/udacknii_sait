@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Exclusion, In, Repository } from 'typeorm';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
-import { Adresses } from 'src/db/adresses.entity';
+import { Addresses } from 'src/db/addresses.entity';
 
 @Injectable()
 export class ClientAPIService {
@@ -12,8 +12,8 @@ export class ClientAPIService {
         private readonly itemsRepository: Repository<Hierarchy>,
         @InjectRepository(Token)
         private readonly tokenRepository: Repository<Token>,
-        @InjectRepository(Adresses)
-        private readonly adressesRepository: Repository<Adresses>,
+        @InjectRepository(Addresses)
+        private readonly addressesRepository: Repository<Addresses>,
     ) {}
 
     getHello(): string {
@@ -144,7 +144,7 @@ export class ClientAPIService {
 
   async getAddressTree(authToken: string) {
     let lst = await this.itemsRepository.find();
-    let lst2 = await this.adressesRepository.find();
+    let lst2 = await this.addressesRepository.find();
     let resp = await this.checkToken(authToken);
     if (resp.status != 'valid') {
         return resp;

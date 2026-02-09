@@ -4,10 +4,10 @@ import {ClientAPIService} from './client_api.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
-import { Adresses } from 'src/db/adresses.entity';
+import { Addresses } from 'src/db/addresses.entity';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Hierarchy, Token, Adresses])],
+    imports: [TypeOrmModule.forFeature([Hierarchy, Token, Addresses])],
     controllers: [ClientAPIController],
     providers: [ClientAPIService],
 })
