@@ -5,12 +5,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
-import { PersonalModule } from './personal/personal.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Hierarchy, Token, Addresses]),
-        PersonalModule,
+        TypeOrmModule.forFeature([
+            Hierarchy, 
+            Token, 
+            Addresses,
+        ]),
     ],
     controllers: [ClientAPIController],
     providers: [ClientAPIService],
