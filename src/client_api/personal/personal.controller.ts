@@ -11,7 +11,7 @@ export class PersonalController {
     }
 
     @Get('get_info')
-    getInfo(@Query('id') id: string, @Headers() headers: Record<string, string>) {
+    getInfo(@Query('lsid') id: string, @Headers() headers: Record<string, string>) {
         // Валидация ID на наличие и правильный формат (id начинается с ls и за ним следует число)
         if (!id) {
             return {
