@@ -12,7 +12,7 @@ export class OtchetService {
 
     async getMonths(hid: number) {
         let r = await this.mForZarplatiRepository.find({
-            where: { hid: hid }
+            where: { addr: hid }
         });
         if (!r || r.length === 0) {
             return {

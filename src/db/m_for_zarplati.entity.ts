@@ -6,7 +6,7 @@ export class M_for_zarplati {
   id: number;
 
   @Column()
-  hid: number;
+  addr: number;
 
   @Column()
   c: number;
