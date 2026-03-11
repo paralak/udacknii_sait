@@ -254,19 +254,22 @@ export class ZarplatiService {
     }
 
     async culcEbalCost(month: Date) {
+        var allPersons:any;
+        var allSummary = [];
         try {
         // Это стоимость одного условного балла. 55000 за человека делим на общее количество баллов.
         // Получаем всех сотрудников и их баллы за месяц
-        let allPersons = await this.terManListRepository.find();
+        allPersons = await this.terManListRepository.find();
         let totalPoints = 0;
         for (let person of allPersons) {
             let summaryResult = await this.getSummary(person.hid, month);
+            allSummary.push(summaryResult);
             if (summaryResult.status === 'success') {
                 totalPoints += summaryResult.data.summary;
             }
         }
         // Calculate the cost of one conditional point
-        let ebalCost = 55000 / totalPoints;
+        let ebalCost = 55000*allPersons.length / totalPoints;
         // Сохраняем стоимость в базу данных
         let ebalCostEntity = new Ebal_cost();
         ebalCostEntity.date = month;
@@ -277,7 +280,7 @@ export class ZarplatiService {
             data: ebalCost,
         };
         } catch (error) {
-            return {error: error}
+            return {error: error, allPersons:allPersons, allSummary:allSummary}
         }
     }
 
