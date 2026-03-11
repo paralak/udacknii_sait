@@ -254,6 +254,7 @@ export class ZarplatiService {
     }
 
     async culcEbalCost(month: Date) {
+        try {
         // Это стоимость одного условного балла. 55000 за человека делим на общее количество баллов.
         // Получаем всех сотрудников и их баллы за месяц
         let allPersons = await this.terManListRepository.find();
@@ -275,6 +276,9 @@ export class ZarplatiService {
             status: 'success',
             data: ebalCost,
         };
+        } catch (error) {
+            return {error: error}
+        }
     }
 
     async getPersonesList(month: Date) {
