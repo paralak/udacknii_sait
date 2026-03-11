@@ -7,6 +7,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientAPIModule } from './client_api/client_api.module';
 import { PersonalModule } from './client_api/personal/personal.module';
 import { OtchetModule } from './client_api/otchet/otchet.module';
+import { ZarplatiModule } from './client_api/zarplati/zarplati.module';
 
 @Module({
     imports: [
@@ -24,6 +25,7 @@ import { OtchetModule } from './client_api/otchet/otchet.module';
         DBModule,
         PersonalModule,
         OtchetModule,
+        ZarplatiModule,
     ],
     controllers: [AppController],
     providers: [AppService],
