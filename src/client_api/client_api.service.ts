@@ -133,11 +133,17 @@ export class ClientAPIService {
       };
     }
 
+    const hidObj = this.itemsRepository.findOne({
+        where:{
+            id:token.user_id,
+        }
+    })
     // 3. Токен верен
     return {
       status: 'valid',
       message: 'Токен действителен',
       userId: token.user_id,
+      hidObj,
       expiresAt: token.expired,
     };
   }

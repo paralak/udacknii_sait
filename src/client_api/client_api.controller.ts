@@ -7,11 +7,6 @@ export class ClientAPIController {
     constructor(private readonly clientAPIService: ClientAPIService) {
     }
 
-    @Get()
-    getHello(): string {
-        return this.clientAPIService.getHello();
-    }
-
     @Get('get_hierarchy_tree')
     getHierarchyTree(@Headers() headers: Record<string, string>) {
         const cookieHeader = headers['cookie'];
