@@ -134,4 +134,27 @@ export class ChatController {
         const sendResult = await this.chatService.sendMessage(chat_id, userId, message);
         return sendResult;
     }
+
+    @Get('check_for_chat_updates')
+    async checkForChatUpdates(@Headers() headers: Record<string, string>, @Query('chat_id') chatId: number, @Query('last_message_time') lastUpdateTime: string) {
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
+        if (!token) {
+            return {
+                status: 'error',
+                message: 'Токен не предоставлен',
+            };
+        }
+
+        const tokenCheck = await this.chatService.checkToken(token);
+        if (tokenCheck.status === 'error') {
+            return tokenCheck;
+        }
+
+
+        const userId = tokenCheck.data;
+        const lastUpdateDate = new Date(lastUpdateTime);
+        const hasUpdates = await this.chatService.checkForChatUpdates(chatId, lastUpdateDate);
+        return hasUpdates;
+    }
 }

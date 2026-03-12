@@ -268,12 +268,16 @@ export class ChatService {
         let newMessages = await this.chatBukketRepository.find({
             where: { chat_id: chatId, timestamp: In([lastUpdateTime, new Date()]) }
         });
-        // если есть новые сообщения, возвращаем true и новые сообщения, иначе false, так же возвращаем текущее время для клиента, для обновления чата в реальном времени
+        // если есть новые сообщения, возвращаем true и все сообщения сообщения, иначе false, так же возвращаем текущее время для клиента, для обновления чата в реальном времени
+        let messages = await this.chatBukketRepository.find({
+            where: { chat_id: chatId },
+            order: { timestamp: 'ASC' }
+        });
         if (newMessages.length > 0) {
             return {
                 status: 'success',
                 data: true,
-                newMessages: newMessages,
+                newMessages: messages,
                 current_time: new Date(),
             };
         }
