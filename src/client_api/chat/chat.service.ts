@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { get } from 'http';
 import { Chat_bukket } from 'src/db/chat_bukket.entity';
 import { Chat_list } from 'src/db/chat_list.entity';
 import { Hid_for_chat } from 'src/db/hid_for_chat.entity';
@@ -208,6 +209,42 @@ export class ChatService {
         };
     }
 
+    async getChat(chatId: number, userId: number) {
+        let chat = await this.chatListRepository.findOne({
+            where: { id: chatId }
+        });
+        if (!chat) {
+            return {
+                status: 'error',
+                message: 'Чат не найден',
+            };
+        }
+        if (chat.hid_from !== userId && chat.hid_to !== userId) {
+            return {
+                status: 'error',
+                message: 'Пользователь не является участником чата',
+            };
+        }
+        // меняем объект чата так, чтобы hid_from было userId, а hid_to было другим пользователем, для удобства на клиенте
+        if (chat.hid_from !== userId) {
+            let temp = chat.hid_from;
+            chat.hid_from = chat.hid_to;
+            chat.hid_to = temp;
+        }
+        // меняем hid_from и hid_to на объекты иерархии
+        let userFrom = await this.hierarchyRepository.findOne({
+            where: { id: chat.hid_from }
+        });
+        let userTo = await this.hierarchyRepository.findOne({
+            where: { id: chat.hid_to }
+        });
+        return {
+            status: 'success',
+            data: chat,
+            userFrom,
+            userTo,
+        };
+    }
     // Получить сообщения для чата
     async getMessagesForChat(chatId: number, userId: number) {
         let messages = await this.chatBukketRepository.find({
@@ -222,10 +259,13 @@ export class ChatService {
             }
         }
         // так же возвращаем текущее время для клиента, для обновления чата в реальном времени
+        // так же возвращаем объект чата, а не только сообщения
+        let chat = await this.getChat(chatId, userId);
         return {
             status: 'success',
             data: messages,
             current_time: new Date(),
+            chat,
         };
     }
 

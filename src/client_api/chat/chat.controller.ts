@@ -114,7 +114,7 @@ export class ChatController {
 
 
     @Post('send_message')
-    async sendMessage(@Headers() headers: Record<string, string>, @Body() body: { chat_id: number, message: string }) {
+    async sendMessage(@Headers() headers: Record<string, string>, @Body() body: { chat_id: number, message: string}) {
         const cookies = headers['cookie'];
         const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
