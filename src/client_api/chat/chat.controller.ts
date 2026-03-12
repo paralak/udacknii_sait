@@ -1,6 +1,7 @@
 import {Body, Controller, Get, Head, Post, Query} from '@nestjs/common';
 import { ChatService } from './chat.service';
 import {Headers} from '@nestjs/common';
+import { from } from 'rxjs';
 
 @Controller('client_api/chat')
 export class ChatController {
@@ -114,7 +115,7 @@ export class ChatController {
 
 
     @Post('send_message')
-    async sendMessage(@Headers() headers: Record<string, string>, @Body() body: { chat_id: number, message: string}) {
+    async sendMessage(@Headers() headers: Record<string, string>, @Body() body: { chat_id: number, message: string, from_hid: number }) {
         const cookies = headers['cookie'];
         const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
@@ -129,9 +130,8 @@ export class ChatController {
             return tokenCheck;
         }
 
-        const userId = tokenCheck.data;
-        const { chat_id, message } = body;
-        const sendResult = await this.chatService.sendMessage(chat_id, userId, message);
+        const { chat_id, message, from_hid } = body;
+        const sendResult = await this.chatService.sendMessage(chat_id, from_hid, message);
         return sendResult;
     }
 
