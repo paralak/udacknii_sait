@@ -9,7 +9,8 @@ export class ChatController {
 
     @Get('get_hid_for_chat')
     async getHidForChat(@Headers() headers: Record<string, string>) {
-        const token = headers['authorization'];
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
             return {
                 status: 'error',
@@ -29,7 +30,8 @@ export class ChatController {
 
     @Get('get_chat_list')
     async getChatList(@Headers() headers: Record<string, string>) {
-        const token = headers['authorization'];
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
             return {
                 status: 'error',
@@ -50,7 +52,8 @@ export class ChatController {
     // получаем список пользователей которым можно отправить сообщение
     @Get('get_users_list')
     async getUsersList(@Headers() headers: Record<string, string>) {
-        const token = headers['authorization'];
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
             return {
                 status: 'error',
@@ -70,7 +73,8 @@ export class ChatController {
 
     @Get('create_chat')
     async createChat(@Headers() headers: Record<string, string>, @Query('hid_from') hidFrom: number, @Query('hid_to') hidTo: number) {
-        const token = headers['authorization'];
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
             return {
                 status: 'error',
@@ -89,7 +93,8 @@ export class ChatController {
 
     @Get('get_messages')
     async getMessages(@Headers() headers: Record<string, string>, @Query('chat_id') chatId: number) {
-        const token = headers['authorization'];
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
             return {
                 status: 'error',
@@ -110,7 +115,8 @@ export class ChatController {
 
     @Post('send_message')
     async sendMessage(@Headers() headers: Record<string, string>, @Body() body: { chat_id: number, message: string }) {
-        const token = headers['authorization'];
+        const cookies = headers['cookie'];
+        const token = cookies.match(/auth_token=([^;]+)/)?.[1];
         if (!token) {
             return {
                 status: 'error',
