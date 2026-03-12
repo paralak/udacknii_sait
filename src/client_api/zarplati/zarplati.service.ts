@@ -6,6 +6,7 @@ import { M_for_zarplati } from 'src/db/m_for_zarplati.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Ebal_cost } from 'src/db/ebal_cost.entity';
 import { Ter_man_list } from 'src/db/ter_man_list.entity';
+import { Month_for_zp } from 'src/db/month_for_zp.entity';
 
 @Injectable()
 export class ZarplatiService {
@@ -24,6 +25,9 @@ export class ZarplatiService {
 
         @InjectRepository(Ter_man_list)
         private terManListRepository: Repository<Ter_man_list>, // список территориальных менеджеров учитываемых при расчете.
+
+        @InjectRepository(Month_for_zp)
+        private monthForZPRepository: Repository<Month_for_zp>,
     ) {}
 
     async checkToken(authToken: string) {
@@ -321,5 +325,9 @@ export class ZarplatiService {
             status: 'success',
             data: personsWithPoints,
         };
+    }
+
+    async getMonth() {
+        let m = await this.monthForZPRepository.find();
     }
 }

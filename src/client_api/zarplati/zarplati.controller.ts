@@ -76,4 +76,9 @@ export class ZarplatiController {
         }
         return await this.zarplatiService.getPersonesList(m);
     }
+
+    @Get('month')
+    async getMonth() {
+        return this.zarplatiService.getMonth();
+    }
 }
