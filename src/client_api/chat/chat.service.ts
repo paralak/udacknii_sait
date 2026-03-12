@@ -198,6 +198,10 @@ export class ChatService {
             hid_to: hidTo
         });
         await this.chatListRepository.save(newChat);
+        // возвращаем полный объект чата, а не только его id
+        newChat = await this.chatListRepository.findOne({
+            where: { id: newChat.id }
+        });
         return {
             status: 'success',
             data: newChat,
