@@ -8,6 +8,7 @@ import { ClientAPIModule } from './client_api/client_api.module';
 import { PersonalModule } from './client_api/personal/personal.module';
 import { OtchetModule } from './client_api/otchet/otchet.module';
 import { ZarplatiModule } from './client_api/zarplati/zarplati.module';
+import { ChatModule } from './client_api/chat/chat.module';
 
 @Module({
     imports: [
@@ -26,6 +27,7 @@ import { ZarplatiModule } from './client_api/zarplati/zarplati.module';
         PersonalModule,
         OtchetModule,
         ZarplatiModule,
+        ChatModule,
     ],
     controllers: [AppController],
     providers: [AppService],
