@@ -329,5 +329,9 @@ export class ZarplatiService {
 
     async getMonth() {
         let m = await this.monthForZPRepository.find();
+        return {
+            status: 'success',
+            data: m,
+        }
     }
 }
