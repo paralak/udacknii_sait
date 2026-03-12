@@ -24,7 +24,7 @@ export class ChatController {
         }
 
         const userId = tokenCheck.data;
-        const accessCheck = await this.chatService.getAccess(userId);
+        const accessCheck = await this.chatService.getAccessList(userId);
         return accessCheck;
     }
 

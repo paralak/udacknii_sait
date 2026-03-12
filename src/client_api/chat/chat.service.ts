@@ -56,9 +56,37 @@ export class ChatService {
         if (r) {
             res.push(r.hid);
         }
+        // убираем повторения в массиве
+        res = Array.from(new Set(res));
         return {
             status: 'success',
             data: res,
+        }
+    }
+
+    async getAccessList(hid: number) {
+        let r = await this.hidForChatRepository.find({
+            where: { access: hid }
+        });
+        let res = [hid];
+        for (let item of r) {
+            res.push(item.hid);
+        }
+        // убираем повторения в массиве
+        res = Array.from(new Set(res));
+        //заменяем id на объекты иерархии
+        let res2 = [];
+        for (let id of res) {
+            let hierarchy = await this.hierarchyRepository.findOne({
+                where: { id }
+            });
+            if (hierarchy) {
+                res2.push(hierarchy);
+            }
+        }
+        return {
+            status: 'success',
+            data: res2,
         }
     }
 
