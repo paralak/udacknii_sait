@@ -8,9 +8,10 @@ import { Peremesh } from 'src/db/peremesh.entity';
 import { Postavki } from 'src/db/postavki.entity';
 import { Sales } from 'src/db/sales.entity';
 import { Spisania } from 'src/db/spisania.entity';
+import { Token } from 'src/db/token.entity';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Item, Stock, Peremesh, Postavki, Sales, Spisania])],
+    imports: [TypeOrmModule.forFeature([Item, Stock, Peremesh, Postavki, Sales, Spisania, Token])],
     controllers: [Bd_importController],
     providers: [Bd_importService],
 })
