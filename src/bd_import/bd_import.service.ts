@@ -7,6 +7,7 @@ import { Sales } from 'src/db/sales.entity';
 import { Peremesh } from 'src/db/peremesh.entity';
 import { Postavki } from 'src/db/postavki.entity';
 import { Spisania } from 'src/db/spisania.entity';
+import { Token } from 'src/db/token.entity';
 
 @Injectable()
 export class Bd_importService {
@@ -28,7 +29,64 @@ export class Bd_importService {
 
         @InjectRepository(Spisania)
         private readonly spisaniaRepository: Repository<Spisania>,
+
+        @InjectRepository(Token)
+        private readonly tokenRepository: Repository<Token>,
     ) {}
+
+    async checkToken(token: string) {
+        let r = await this.tokenRepository.findOne({
+            where: { token }
+        });
+        if (!r) {
+            return {
+                status: 'error',
+                message: 'Токен не найден',
+            };
+        }
+        if (r.expired < new Date()) {
+            return {
+                status: 'error',
+                message: 'Токен истек',
+            };
+        }
+        return {
+            status: 'success',
+            data: r.user_id,
+        };
+    }
+
+    async getAddressList() {
+        const lst = [
+            {
+                code: 'ТП00071',
+                date: new Date('2026-01-01'),
+            },
+            {
+                code: 'ТП00071',
+                date: new Date('2026-02-01'),
+            },
+            {
+                code: 'ТП00138',
+                date: new Date('2026-01-01'),
+            },
+            {
+                code: 'ТП00138',
+                date: new Date('2026-02-01'),
+            },
+        ]
+        return {
+            status: 'success',
+            data: lst,
+        };
+    }
+
+    async sendAddressSums(args: any) {
+        console.log(args);
+        return {
+            status: 'success',
+        };
+    }
 
     getHello(): string {
         return 'Hello Worl2d!';
