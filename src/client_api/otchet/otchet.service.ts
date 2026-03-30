@@ -51,7 +51,7 @@ export class OtchetService {
                 address: ADDRESS_MAP[item.address] || item.address,
                 name: DRINKS_MAP[item.name] || item.name,
             }
-        }).filter(item => ADDRESS_MAP[item.address] && DRINKS_MAP[item.name]);
+        });
 
         return {
             status: 'success',
