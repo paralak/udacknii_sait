@@ -45,13 +45,15 @@ export class OtchetService {
         }
 
         //меняем коды на названия для адресов и напитков и убираем те которых нет в списке адреса или напитка
-        r = r.map(item => {
-            return {
-                ...item,
-                address: ADDRESS_MAP[item.address] || item.address,
-                name: DRINKS_MAP[item.name] || item.name,
-            }
-        });
+        r = r
+            .filter(item => ADDRESS_MAP[item.address] && DRINKS_MAP[item.name])
+            .map(item => {
+                return {
+                    ...item,
+                    address: ADDRESS_MAP[item.address],
+                    name: DRINKS_MAP[item.name],
+                }
+            });
 
         return {
             status: 'success',
