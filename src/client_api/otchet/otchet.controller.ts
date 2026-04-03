@@ -33,4 +33,15 @@ export class OtchetController {
         }
         return this.personalService.getProdajiNapitkiMes(addr);
     }
+
+    @Get('get_prodaji_dec_mes_2')
+    getProdajiDecMes2(@Query('addr') addr: string) {
+        if (!addr) {
+            return {
+                status: 'error',
+                message: 'Адрес не предоставлен',
+            };
+        }
+        return this.personalService.getProdajiDecMes2(addr);
+    }
 }

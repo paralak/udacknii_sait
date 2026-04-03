@@ -4,6 +4,7 @@ import { M_for_zarplati } from 'src/db/m_for_zarplati.entity';
 import { Prodaji_napitki_mes } from 'src/db/prodaji_napitki_mes.entity';
 import { Repository } from 'typeorm';
 import { ADDRESS_MAP, DRINKS_MAP } from './otchet.constants';
+import { Prodaji_dec_mes_2 } from 'src/db/prodaji_dec_mes_2.entity';
 
 @Injectable()
 export class OtchetService {
@@ -12,6 +13,8 @@ export class OtchetService {
         private mForZarplatiRepository: Repository<M_for_zarplati>,
         @InjectRepository(Prodaji_napitki_mes)
         private prodajiNapitkiMesRepository: Repository<Prodaji_napitki_mes>,
+        @InjectRepository(Prodaji_dec_mes_2)
+        private prodajiDecMes2Repository: Repository<Prodaji_dec_mes_2>,
     ) {}
 
     async getMonths(hid: number) {
@@ -35,7 +38,8 @@ export class OtchetService {
         const normalizedAddr = Object.keys(ADDRESS_MAP).find(key => ADDRESS_MAP[key] === addr) || addr;
 
         let r = await this.prodajiNapitkiMesRepository.find({
-            where: { address: normalizedAddr }
+            where: { address: normalizedAddr },
+            order: { timestamp: 'ASC' }
         });
         if (!r || r.length === 0) {
             return {
@@ -52,6 +56,34 @@ export class OtchetService {
                     ...item,
                     address: ADDRESS_MAP[item.address],
                     name: DRINKS_MAP[item.name],
+                }
+            });
+
+        return {
+            status: 'success',
+            data: r,
+        };
+    }
+
+    async getProdajiDecMes2(addr: string) {
+        const normalizedAddr = Object.keys(ADDRESS_MAP).find(key => ADDRESS_MAP[key] === addr) || addr;
+        let r = await this.prodajiDecMes2Repository.find({
+            where: { address: normalizedAddr },
+            order: { timestamp: 'ASC' }
+        });
+        if (!r || r.length === 0) {
+            return {
+                status: 'error',
+                message: 'Информация не найдена',
+            };
+        }
+
+        r = r
+            .filter(item => ADDRESS_MAP[item.address])
+            .map(item => {
+                return {
+                    ...item,
+                    address: ADDRESS_MAP[item.address],
                 }
             });
 
