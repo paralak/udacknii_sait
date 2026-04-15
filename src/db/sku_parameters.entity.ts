@@ -1,7 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity()
-export class OrderAccess {
+export class Sku_parameters {
     @PrimaryGeneratedColumn()
     id: number;
 
