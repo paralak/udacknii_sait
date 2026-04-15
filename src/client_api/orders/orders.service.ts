@@ -120,7 +120,7 @@ export class OrdersService {
         const skuParameters = await this.skuParametersRepository.find();
         const skuMap = {};
         skuParameters.forEach(sku => {
-            skuMap[sku.id] = [sku.packaging_supplier, sku.name];
+            skuMap[sku.sku_id] = [sku.packaging_supplier, sku.name];
         }
         );
         const finalResult = result.map(record => {
@@ -171,7 +171,7 @@ export class OrdersService {
         const skuParameters = await this.skuParametersRepository.find();
         const skuMap = {};
         skuParameters.forEach(sku => {
-            skuMap[sku.id] = [sku.packaging_supplier, sku.name];
+            skuMap[sku.sku_id] = [sku.packaging_supplier, sku.name];
         }
         );
         const finalResult = result.map(record => {

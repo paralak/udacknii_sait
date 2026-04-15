@@ -3,7 +3,7 @@ import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 @Entity()
 export class Sku_parameters {
     @PrimaryGeneratedColumn()
-    id: number;
+    sku_id: number;
 
     @Column()
     name: string;

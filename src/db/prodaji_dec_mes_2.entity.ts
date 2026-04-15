@@ -6,7 +6,7 @@ export class Prodaji_dec_mes_2 {
   id: number;
 
   @Column()
-address: string;    
+  address: string;    
 
   @Column()
   timestamp: Date;
