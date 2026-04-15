@@ -9,6 +9,7 @@ import { PersonalModule } from './client_api/personal/personal.module';
 import { OtchetModule } from './client_api/otchet/otchet.module';
 import { ZarplatiModule } from './client_api/zarplati/zarplati.module';
 import { ChatModule } from './client_api/chat/chat.module';
+import { OrdersModule } from './client_api/orders/orders.module';
 
 @Module({
     imports: [
@@ -28,6 +29,7 @@ import { ChatModule } from './client_api/chat/chat.module';
         OtchetModule,
         ZarplatiModule,
         ChatModule,
+        OrdersModule,
     ],
     controllers: [AppController],
     providers: [AppService],
