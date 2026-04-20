@@ -5,7 +5,7 @@ import { OrderAccess } from 'src/db/order_access.entity';
 import { Token } from 'src/db/token.entity';
 import { OrdersTable } from 'src/db/orders_table.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
-import { ADDRESS_MAP, POSTAVSHIK_NAME } from './orders.constants';
+import { ADDRESS_MAP, POSTAVSHIK_NAME, ADDRESS_ADDRESS, ADDRESS_IP } from './orders.constants';
 
 @Injectable()
 export class OrdersService {
@@ -165,6 +165,8 @@ export class OrdersService {
             return {
                 ...record,
                 address: ADDRESS_MAP[record.address] || record.address,
+                address_full: ADDRESS_ADDRESS[record.address] || record.address,
+                address_ip: ADDRESS_IP[record.address] || record.address,
             }
         });
 
