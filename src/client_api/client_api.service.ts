@@ -4,6 +4,8 @@ import { Exclusion, In, Repository } from 'typeorm';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
+import { Login } from 'src/db/login.entity';
+
 
 @Injectable()
 export class ClientAPIService {
@@ -14,6 +16,8 @@ export class ClientAPIService {
         private readonly tokenRepository: Repository<Token>,
         @InjectRepository(Addresses)
         private readonly addressesRepository: Repository<Addresses>,
+        @InjectRepository(Login)
+        private readonly loginRepository: Repository<Login>,
     ) {}
 
     getHello(): string {
@@ -246,6 +250,37 @@ export class ClientAPIService {
       }));
 
       return rlst3;
+
+  }
+
+  async login(login: string, hashedpassword: string) {
+    // Ищем пользователя по логину и хешу пароля
+    const user = await this.loginRepository.findOne({
+      where: { login, hashedpassword },
+    });
+    if (!user) {
+      return {
+        status: 'error',
+        message: 'Неверный логин или пароль',
+      };
+    }
+    // Генерируем новый токен
+    const newToken = Math.random().toString(36).substring(2);
+    const expiredDate = new Date();
+    expiredDate.setHours(expiredDate.getHours() + 72); // Токен действителен 3 дня
+    // Сохраняем токен в базе данных
+    const tokenEntity = this.tokenRepository.create({
+      token: newToken,
+      user_id: user.hid,
+      expired: expiredDate,
+    });
+    await this.tokenRepository.save(tokenEntity);
+    return {
+      status: 'success',
+      message: 'Успешный вход',
+      token: newToken,
+      userId: user.hid,
+    };
 
   }
 }

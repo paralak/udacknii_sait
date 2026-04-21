@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
+import { Login } from 'src/db/login.entity';
 
 @Module({
     imports: [
@@ -12,6 +13,7 @@ import { Addresses } from 'src/db/addresses.entity';
             Hierarchy, 
             Token, 
             Addresses,
+            Login,
         ]),
     ],
     controllers: [ClientAPIController],

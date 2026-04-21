@@ -1,4 +1,4 @@
-import {Controller, Get, Headers} from '@nestjs/common';
+import {Controller, Get, Post, Headers} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
 import {Query} from '@nestjs/common';
 
@@ -71,4 +71,15 @@ export class ClientAPIController {
             
             return this.clientAPIService.checkToken(token);
         }
+
+    @Post('login')
+    login(@Query('login') login: string, @Query('password') hashedpassword: string) {
+        if (!login || !hashedpassword) {
+            return {
+                status: 'error',
+                message: 'Имя пользователя или пароль не предоставлены',
+            };
+        }
+        return this.clientAPIService.login(login, hashedpassword);
+    }
 }
