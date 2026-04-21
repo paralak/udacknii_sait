@@ -264,8 +264,8 @@ export class ClientAPIService {
         message: 'Неверный логин или пароль',
       };
     }
-    // Генерируем новый токен
-    const newToken = Math.random().toString(36).substring(2);
+    // Генерируем новый токен из 16 случайных символов
+    const newToken = Math.random().toString(36).substring(2, 18);
     const expiredDate = new Date();
     expiredDate.setHours(expiredDate.getHours() + 72); // Токен действителен 3 дня
     // Сохраняем токен в базе данных

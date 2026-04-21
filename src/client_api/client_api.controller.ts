@@ -1,4 +1,4 @@
-import {Controller, Get, Post, Headers} from '@nestjs/common';
+import {Controller, Get, Post, Headers, Body} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
 import {Query} from '@nestjs/common';
 
@@ -73,7 +73,8 @@ export class ClientAPIController {
         }
 
     @Post('login')
-    login(@Query('login') login: string, @Query('password') hashedpassword: string) {
+    login(@Body() body: { login: string; hashedpassword: string }) {
+        const { login, hashedpassword } = body;
         if (!login || !hashedpassword) {
             return {
                 status: 'error',
