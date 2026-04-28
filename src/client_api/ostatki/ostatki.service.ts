@@ -107,7 +107,7 @@ export class OstatkiService {
                 delete fields[field.sku_id];
                 continue;
             }
-            fields[field.sku_id] = field.sku_id;
+            fields[field.sku_id] = field;
         }
         return fields;
     }
