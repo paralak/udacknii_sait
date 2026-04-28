@@ -15,5 +15,5 @@ export class Stock2 {
   value: number;
 
   @Column()
-  date: string;
+  date: Date;
 }

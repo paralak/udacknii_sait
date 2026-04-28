@@ -119,7 +119,7 @@ export class OstatkiService {
             stock.address = item.address;
             stock.sku_id = item.sku_id;
             stock.value = item.value;
-            stock.date = item.date;
+            stock.date = new Date(item.date);
             await this.stock2Repository.save(stock);
         }
         return {
