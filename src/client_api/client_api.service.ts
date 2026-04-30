@@ -5,6 +5,7 @@ import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
 import { Login } from 'src/db/login.entity';
+import { Flags } from 'src/db/flags.entity';
 
 
 @Injectable()
@@ -18,6 +19,8 @@ export class ClientAPIService {
         private readonly addressesRepository: Repository<Addresses>,
         @InjectRepository(Login)
         private readonly loginRepository: Repository<Login>,
+        @InjectRepository(Flags)
+        private readonly flagsRepository: Repository<Flags>,
     ) {}
 
     getHello(): string {
@@ -142,13 +145,20 @@ export class ClientAPIService {
             id:token.user_id,
         }
     })
+    // так же получаем флаги для данного пользователя в виде массива строк
+    const flags = await this.flagsRepository.find({
+        where: {
+            hid: token.user_id,
+        },
+    });
     // 3. Токен верен
     return {
-      status: 'valid',
-      message: 'Токен действителен',
-      userId: token.user_id,
-      hidObj,
-      expiresAt: token.expired,
+        status: 'valid',
+        message: 'Токен действителен',
+        userId: token.user_id,
+        hidObj,
+        flags: flags.map((f) => f.flag),
+        expiresAt: token.expired,
     };
   }
 
