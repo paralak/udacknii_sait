@@ -1,7 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity()
-export class M_for_zarplati {
+export class Flags {
   @PrimaryGeneratedColumn()
   id: number;
 
