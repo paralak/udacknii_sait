@@ -6,6 +6,7 @@ import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
 import { Login } from 'src/db/login.entity';
+import { Flags } from 'src/db/flags.entity';
 
 @Module({
     imports: [
@@ -14,6 +15,7 @@ import { Login } from 'src/db/login.entity';
             Token, 
             Addresses,
             Login,
+            Flags,
         ]),
     ],
     controllers: [ClientAPIController],
@@ -21,3 +23,4 @@ import { Login } from 'src/db/login.entity';
 })
 export class ClientAPIModule {
 }
+
