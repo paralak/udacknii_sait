@@ -127,6 +127,14 @@ export class ChatService {
             let lastMessage = await this.getLastMessageForChat(chatList.id);
             chatList['last_message'] = lastMessage.data;
         }
+        // hid_from всегда должен быть userId, если hid_from не равен userId, меняем местами hid_from и hid_to
+        for (let chatList of chatLists) {
+            if (chatList.hid_from !== userId) {
+                let temp = chatList.hid_from;
+                chatList.hid_from = chatList.hid_to;
+                chatList.hid_to = temp;
+            }
+        }
         return {
             status: 'success',
             data: chatLists,
