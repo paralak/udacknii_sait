@@ -86,6 +86,7 @@ export class ServiceService {
         serviceLog.type = type;
         serviceLog.status = 'registered';
         serviceLog.timestamp = new Date();
+        serviceLog.hid = userId;
         await this.serviceLogRepository.save(serviceLog);
 
         return {

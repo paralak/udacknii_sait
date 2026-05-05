@@ -19,4 +19,7 @@ export class Service_log {
 
   @Column()
   timestamp: Date;
+
+  @Column()
+  hid: number;
 }
