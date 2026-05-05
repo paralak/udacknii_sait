@@ -85,6 +85,7 @@ export class ServiceService {
         serviceLog.message = message;
         serviceLog.type = type;
         serviceLog.status = 'registered';
+        serviceLog.timestamp = new Date();
         await this.serviceLogRepository.save(serviceLog);
 
         return {
@@ -122,6 +123,7 @@ export class ServiceService {
         serviceLog.type = type;
         serviceLog.message = message;
         serviceLog.status = status;
+        serviceLog.timestamp = new Date();
         await this.serviceLogRepository.save(serviceLog);
         // также обновить статус сервиса в таблице service_reg
         await this.serviceRegRepository.update({ id: regId }, { type });
