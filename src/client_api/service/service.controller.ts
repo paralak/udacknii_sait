@@ -25,14 +25,14 @@ export class ServiceController {
     }
 
     @Post('change_status')
-    async changeServiceStatus(@Headers() headers: Record<string, string>, @Body() body: { regId: number; type: string; message: string }) {
-        if (!body.regId || !body.type || (!body.message && body.message !== '')) {
+    async changeServiceStatus(@Headers() headers: Record<string, string>, @Body() body: { regId: number; type: string; message: string; status: string }) {
+        if (!body.regId || !body.type || (!body.message && body.message !== '') || !body.status) {
             return {
                 status: 'error',
                 message: 'Недостаточно данных для изменения статуса сервиса',
             };
         }
-        return this.serviceService.changeServiceStatus(headers, body.regId, body.type, body.message);
+        return this.serviceService.changeServiceStatus(headers, body.regId, body.type, body.message, body.status);
     }
 
     @Get('list')

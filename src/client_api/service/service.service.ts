@@ -83,6 +83,8 @@ export class ServiceService {
         const serviceLog = new Service_log();
         serviceLog.reg_id = savedService.id;
         serviceLog.message = message;
+        serviceLog.type = type;
+        serviceLog.status = 'registered';
         await this.serviceLogRepository.save(serviceLog);
 
         return {
@@ -109,7 +111,7 @@ export class ServiceService {
         return servicesWithLogs;
     }
 
-    async changeServiceStatus(headers: Record<string, string>, regId: number, type: string, message: string) {
+    async changeServiceStatus(headers: Record<string, string>, regId: number, type: string, message: string, status: string) {
         const tokenCheck = await this.checkToken(headers);
         if (tokenCheck.status !== 'valid') {
             return tokenCheck;
@@ -119,6 +121,7 @@ export class ServiceService {
         serviceLog.reg_id = regId;
         serviceLog.type = type;
         serviceLog.message = message;
+        serviceLog.status = status;
         await this.serviceLogRepository.save(serviceLog);
         // также обновить статус сервиса в таблице service_reg
         await this.serviceRegRepository.update({ id: regId }, { type });
