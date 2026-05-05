@@ -124,6 +124,7 @@ export class ServiceService {
         serviceLog.type = type;
         serviceLog.message = message;
         serviceLog.status = status;
+        serviceLog.hid = tokenCheck.userId;
         serviceLog.timestamp = new Date();
         await this.serviceLogRepository.save(serviceLog);
         // также обновить статус сервиса в таблице service_reg
