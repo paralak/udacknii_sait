@@ -13,6 +13,7 @@ import { Personal_ls } from './personal/personal_ls.entity';
 import { Personal_ls_info } from './personal/personal_ls_info.entity';
 import { Personal_pos } from './personal/personal_pos.entity';
 import { Flags } from './flags.entity';
+import { MailCredentials } from './mail_credentials.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([
@@ -29,6 +30,7 @@ import { Flags } from './flags.entity';
     Personal_ls_info,
     Personal_pos,
     Flags,
+    MailCredentials,
   ])],
 })
 export class DBModule {}

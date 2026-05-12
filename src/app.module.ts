@@ -12,6 +12,7 @@ import { ChatModule } from './client_api/chat/chat.module';
 import { OrdersModule } from './client_api/orders/orders.module';
 import { OstatkiModule } from './client_api/ostatki/ostatki.module';
 import { ServiceModule } from './client_api/service/service.module';
+import { MailModule } from './client_api/mail/mail.module';
 
 @Module({
     imports: [
@@ -34,6 +35,7 @@ import { ServiceModule } from './client_api/service/service.module';
         OrdersModule,
         OstatkiModule,
         ServiceModule,
+        MailModule,
     ],
     controllers: [AppController],
     providers: [AppService],
