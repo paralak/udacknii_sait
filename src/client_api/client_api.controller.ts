@@ -72,6 +72,14 @@ export class ClientAPIController {
             return this.clientAPIService.checkToken(token);
         }
 
+    @Get('get_hierarchy_item')
+    getHierarchyItem(@Query('hid') hid: string) {
+        if (!hid) {
+            return { status: 'error', message: 'hid не предоставлен' };
+        }
+        return this.clientAPIService.getHierarchyItem(Number(hid));
+    }
+
     @Post('login')
     login(@Body() body: { login: string; hashedpassword: string }) {
         const { login, hashedpassword } = body;

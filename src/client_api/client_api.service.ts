@@ -263,6 +263,14 @@ export class ClientAPIService {
 
   }
 
+  async getHierarchyItem(hid: number) {
+    const item = await this.itemsRepository.findOne({ where: { id: hid } });
+    if (!item) {
+      return { status: 'error', message: 'Объект не найден' };
+    }
+    return { status: 'success', data: item };
+  }
+
   async login(login: string, hashedpassword: string) {
     // Ищем пользователя по логину и хешу пароля
     const user = await this.loginRepository.findOne({
