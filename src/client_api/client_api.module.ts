@@ -7,15 +7,17 @@ import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
 import { Login } from 'src/db/login.entity';
 import { Flags } from 'src/db/flags.entity';
+import { UserProfile } from 'src/db/user_profile.entity';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([
-            Hierarchy, 
-            Token, 
+            Hierarchy,
+            Token,
             Addresses,
             Login,
             Flags,
+            UserProfile,
         ]),
     ],
     controllers: [ClientAPIController],

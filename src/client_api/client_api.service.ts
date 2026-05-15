@@ -6,6 +6,7 @@ import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
 import { Login } from 'src/db/login.entity';
 import { Flags } from 'src/db/flags.entity';
+import { UserProfile } from 'src/db/user_profile.entity';
 
 
 @Injectable()
@@ -21,6 +22,8 @@ export class ClientAPIService {
         private readonly loginRepository: Repository<Login>,
         @InjectRepository(Flags)
         private readonly flagsRepository: Repository<Flags>,
+        @InjectRepository(UserProfile)
+        private readonly userProfileRepository: Repository<UserProfile>,
     ) {}
 
     getHello(): string {
@@ -269,6 +272,65 @@ export class ClientAPIService {
       return { status: 'error', message: 'Объект не найден' };
     }
     return { status: 'success', data: item };
+  }
+
+  async getProfile(authToken: string) {
+    const tokenCheck = await this.checkToken(authToken);
+    if (tokenCheck.status !== 'valid') return tokenCheck;
+
+    const userId = tokenCheck.userId;
+    const hierarchy = await this.itemsRepository.findOne({ where: { id: userId } });
+    const logins = await this.loginRepository.find({ where: { hid: userId } });
+    const profile = await this.userProfileRepository.findOne({ where: { hid: userId } });
+
+    return {
+      status: 'success',
+      name: hierarchy?.name ?? '',
+      logins: logins.map((l) => l.login),
+      birthday: profile?.birthday ?? null,
+      phone: profile?.phone ?? null,
+    };
+  }
+
+  async updateProfile(authToken: string, data: { birthday?: string | null; phone?: string | null }) {
+    const tokenCheck = await this.checkToken(authToken);
+    if (tokenCheck.status !== 'valid') return tokenCheck;
+
+    const userId = tokenCheck.userId;
+    let profile = await this.userProfileRepository.findOne({ where: { hid: userId } });
+
+    if (!profile) {
+      profile = this.userProfileRepository.create({ hid: userId });
+    }
+
+    if (data.birthday !== undefined) {
+      profile.birthday = data.birthday ? new Date(data.birthday) : null;
+    }
+    if (data.phone !== undefined) {
+      profile.phone = data.phone || null;
+    }
+
+    await this.userProfileRepository.save(profile);
+    return { status: 'success' };
+  }
+
+  async changePassword(authToken: string, oldHashedPassword: string, newHashedPassword: string) {
+    const tokenCheck = await this.checkToken(authToken);
+    if (tokenCheck.status !== 'valid') return tokenCheck;
+
+    const userId = tokenCheck.userId;
+
+    const loginWithOldPassword = await this.loginRepository.findOne({
+      where: { hid: userId, hashedpassword: oldHashedPassword },
+    });
+
+    if (!loginWithOldPassword) {
+      return { status: 'error', message: 'Неверный текущий пароль' };
+    }
+
+    await this.loginRepository.update({ hid: userId }, { hashedpassword: newHashedPassword });
+
+    return { status: 'success', message: 'Пароль успешно изменён' };
   }
 
   async login(login: string, hashedpassword: string) {

@@ -1,4 +1,4 @@
-import {Controller, Get, Post, Headers, Body} from '@nestjs/common';
+import {Controller, Get, Post, Patch, Headers, Body} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
 import {Query} from '@nestjs/common';
 
@@ -80,6 +80,33 @@ export class ClientAPIController {
         return this.clientAPIService.getHierarchyItem(Number(hid));
     }
 
+    @Get('profile')
+    getProfile(@Headers() headers: Record<string, string>) {
+        const authToken = this.extractToken(headers);
+        if (!authToken) return { status: 'error', message: 'Токен не предоставлен' };
+        return this.clientAPIService.getProfile(authToken);
+    }
+
+    @Patch('profile')
+    updateProfile(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { birthday?: string | null; phone?: string | null },
+    ) {
+        const authToken = this.extractToken(headers);
+        if (!authToken) return { status: 'error', message: 'Токен не предоставлен' };
+        return this.clientAPIService.updateProfile(authToken, body);
+    }
+
+    @Post('change_password')
+    changePassword(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { oldHashedPassword: string; newHashedPassword: string },
+    ) {
+        const authToken = this.extractToken(headers);
+        if (!authToken) return { status: 'error', message: 'Токен не предоставлен' };
+        return this.clientAPIService.changePassword(authToken, body.oldHashedPassword, body.newHashedPassword);
+    }
+
     @Post('login')
     login(@Body() body: { login: string; hashedpassword: string }) {
         const { login, hashedpassword } = body;
@@ -90,5 +117,14 @@ export class ClientAPIController {
             };
         }
         return this.clientAPIService.login(login, hashedpassword);
+    }
+
+    private extractToken(headers: Record<string, string>): string | null {
+        const cookieHeader = headers['cookie'];
+        if (cookieHeader) {
+            const match = cookieHeader.match(/auth_token=([^;]+)/);
+            if (match) return match[1];
+        }
+        return null;
     }
 }
