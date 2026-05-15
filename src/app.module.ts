@@ -13,6 +13,7 @@ import { OrdersModule } from './client_api/orders/orders.module';
 import { OstatkiModule } from './client_api/ostatki/ostatki.module';
 import { ServiceModule } from './client_api/service/service.module';
 import { MailModule } from './client_api/mail/mail.module';
+import { SuggestionsModule } from './client_api/suggestions/suggestions.module';
 
 @Module({
     imports: [
@@ -36,6 +37,7 @@ import { MailModule } from './client_api/mail/mail.module';
         OstatkiModule,
         ServiceModule,
         MailModule,
+        SuggestionsModule,
     ],
     controllers: [AppController],
     providers: [AppService],
