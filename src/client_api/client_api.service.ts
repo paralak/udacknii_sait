@@ -31,90 +31,26 @@ export class ClientAPIService {
     }
 
     async getHierarchyTree(authToken: string) {
-      const lst = await this.itemsRepository.find();
-      let resp = await this.checkToken(authToken);
+      const resp = await this.checkToken(authToken);
 
-      if (resp.status != 'valid') {
+      if (resp.status !== 'valid') {
           return resp;
       }
 
-      // Начинаем с элементов, принадлежащих пользователю
-      let rlst = lst.filter((item) => {
-          return item.id == resp.userId;
-      });
+      const hasHierarchyAccess =
+          resp.flags.includes('HIERARCHY') || resp.flags.includes('ADMIN');
 
-      let ridstop: number[] = [];  // ID элементов, добавленных как родители
-      let ridsbot: number[] = [];  // ID элементов, добавленных как дети
-
-      for (let i = 0; i < 20; i++) {
-          // Добавляем родителей текущих элементов
-          rlst.forEach((item) => {
-              // Пропускаем, если элемент уже был добавлен как ребенок
-              if (ridsbot.includes(item.id)) {
-                  return;
-              }
-              
-              // Пропускаем, если родитель уже добавлен в верхние элементы
-              if (ridstop.includes(item.parent_id)) {
-                  return;
-              }
-              
-              // Пропускаем, если родитель - сам пользователь
-              if (item.parent_id == resp.userId) {
-                  return;
-              }
-              
-              // Ищем родительский элемент
-              let np = lst.find((item2) => {
-                  return item2.id == item.parent_id;
-              });
-              
-              if (!np) {
-                  return;
-              }
-              
-              // Добавляем родителя
-              rlst.push(np);
-              ridstop.push(np.id);
+      if (hasHierarchyAccess) {
+          // Полная иерархия: все департаменты, подразделения и сотрудники
+          return this.itemsRepository.find({
+              where: { type: In(['Department', 'Company', 'Person']) },
           });
-
-          // Добавляем детей текущих элементов
-          lst.forEach((item) => {
-              // Пропускаем, если элемент уже был добавлен как ребенок
-              if (ridsbot.includes(item.id)) {
-                  return;
-              }
-              
-              // Пропускаем, если родитель уже добавлен в верхние элементы
-              if (ridstop.includes(item.parent_id)) {
-                  return;
-              }
-              
-              // Ищем, есть ли элемент в rlst, который является родителем для текущего
-              let op = rlst.find((item2) => {
-                  return item.parent_id == item2.id;
-              });
-              
-              if (!op) {
-                  return;
-              }
-              
-              // Добавляем ребенка
-              rlst.push(item);
-              ridsbot.push(item.id);
+      } else {
+          // Только структура департаментов и подразделений (без сотрудников)
+          return this.itemsRepository.find({
+              where: { type: In(['Department', 'Company']) },
           });
       }
-
-      // Добавляем все отделы, которые еще не были добавлены
-      lst.forEach((item) => {
-          if (item.type == 'Department' && 
-              !ridstop.includes(item.id) && 
-              !ridsbot.includes(item.id)) {
-              rlst.push(item);
-          }
-      });
-
-      return rlst;
   }
 
     async checkToken(tokenValue: string) {
