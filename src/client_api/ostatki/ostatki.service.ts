@@ -112,6 +112,25 @@ export class OstatkiService {
         return fields;
     }
 
+    async getLastStock(regId: number, address: number) {
+        const fields = await this.getFieldsByRegId(regId);
+        const skuIds: string[] = Object.values(fields).map((f: any) => String(f.sku_id));
+
+        if (skuIds.length === 0) return [];
+
+        const result: { sku_id: number; value: number; date: Date }[] = [];
+        for (const skuId of skuIds) {
+            const stock = await this.stock2Repository.findOne({
+                where: { address, sku_id: skuId },
+                order: { date: 'DESC' },
+            });
+            if (stock) {
+                result.push({ sku_id: parseInt(skuId), value: stock.value, date: stock.date });
+            }
+        }
+        return result;
+    }
+
     async postStock(body: { address: number, sku_id: string, value: number, date: string }[]) {
         // body is array of objects with address, sku_id, value, date
         for (const item of body) {

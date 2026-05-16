@@ -44,6 +44,19 @@ export class OstatkiController {
         return this.ostatkiService.getFieldsByRegId(regId);
     }
 
+    @Get('get_last_stock')
+    async getLastStock(
+        @Headers() headers,
+        @Query('reg_id') regId: number,
+        @Query('address') address: number,
+    ) {
+        const tokenCheckResult = await this.ostatkiService.checkToken(headers);
+        if (tokenCheckResult.status !== 'valid') {
+            return tokenCheckResult;
+        }
+        return this.ostatkiService.getLastStock(regId, address);
+    }
+
     @Post('post_stock')
     async postStock(@Headers() headers, @Body() body: { address: number, sku_id: string, value: number, date: string }[]) {
         const tokenCheckResult = await this.ostatkiService.checkToken(headers);
