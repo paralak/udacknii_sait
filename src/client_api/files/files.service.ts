@@ -20,11 +20,7 @@ export class FilesService {
   constructor(
     @InjectRepository(Token)
     private readonly tokenRepository: Repository<Token>,
-  ) {
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    }
-  }
+  ) {}
 
   private extractToken(headers: Record<string, string>): string | null {
     const cookie = headers['cookie'];
