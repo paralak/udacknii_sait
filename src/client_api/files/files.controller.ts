@@ -8,8 +8,15 @@ import {
   MaxFileSizeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage, File as MulterFile } from 'multer';
+import { memoryStorage } from 'multer';
 import { FilesService } from './files.service';
+
+interface UploadedMulterFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -28,7 +35,7 @@ export class FilesController {
         validators: [new MaxFileSizeValidator({ maxSize: MAX_SIZE })],
       }),
     )
-    file: MulterFile,
+    file: UploadedMulterFile,
   ) {
     return this.filesService.uploadFile(headers, file);
   }

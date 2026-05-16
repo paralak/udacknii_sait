@@ -5,7 +5,13 @@ import { Token } from 'src/db/token.entity';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { File as MulterFile } from 'multer';
+
+interface UploadedMulterFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? '/mnt/shared/uploads';
 
@@ -36,7 +42,7 @@ export class FilesService {
 
   async uploadFile(
     headers: Record<string, string>,
-    file: MulterFile,
+    file: UploadedMulterFile,
   ) {
     const authToken = this.extractToken(headers);
     if (!authToken) {
