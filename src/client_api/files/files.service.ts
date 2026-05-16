@@ -36,6 +36,29 @@ export class FilesService {
     return token.user_id;
   }
 
+  async uploadAvatar(
+    headers: Record<string, string>,
+    file: UploadedMulterFile,
+  ) {
+    const authToken = this.extractToken(headers);
+    if (!authToken) return { status: 'error', message: 'Токен не предоставлен' };
+
+    const hid = await this.resolveHid(authToken);
+    if (!hid) return { status: 'error', message: 'Недействительный токен' };
+
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'];
+    if (!allowed.includes(ext)) {
+      return { status: 'error', message: 'Недопустимый формат файла' };
+    }
+
+    const filename = `avatar_${hid}.jpg`;
+    const destPath = path.join(UPLOADS_DIR, filename);
+    fs.writeFileSync(destPath, file.buffer);
+
+    return { status: 'success', filename };
+  }
+
   async uploadFile(
     headers: Record<string, string>,
     file: UploadedMulterFile,
