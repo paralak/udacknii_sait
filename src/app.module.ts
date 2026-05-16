@@ -14,6 +14,7 @@ import { OstatkiModule } from './client_api/ostatki/ostatki.module';
 import { ServiceModule } from './client_api/service/service.module';
 import { MailModule } from './client_api/mail/mail.module';
 import { SuggestionsModule } from './client_api/suggestions/suggestions.module';
+import { FilesModule } from './client_api/files/files.module';
 
 @Module({
     imports: [
@@ -38,6 +39,7 @@ import { SuggestionsModule } from './client_api/suggestions/suggestions.module';
         ServiceModule,
         MailModule,
         SuggestionsModule,
+        FilesModule,
     ],
     controllers: [AppController],
     providers: [AppService],
