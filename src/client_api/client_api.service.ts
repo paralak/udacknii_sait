@@ -107,7 +107,20 @@ export class ClientAPIService {
     let resp = await this.checkToken(authToken);
     if (resp.status != 'valid') {
         return resp;
-    } 
+    }
+
+    // TM-пользователи: фильтруем по флагам TM_{id}
+    const tmStoreIds = resp.flags
+        .filter(f => /^TM_\d+$/.test(f))
+        .map(f => parseInt(f.replace('TM_', '')));
+
+    if (tmStoreIds.length > 0 && !resp.flags.includes('ADMIN')) {
+        const allowedStores = lst2.filter(item => item.type === 'Store' && tmStoreIds.includes(item.id));
+        const allowedAddressIds = [...new Set(allowedStores.map(s => s.parent_id))];
+        const allowedAddresses = lst2.filter(item => item.type === 'Address' && allowedAddressIds.includes(item.id));
+        return [...allowedAddresses, ...allowedStores];
+    }
+
     // Начинаем с элементов, принадлежащих пользователю
       let rlst = lst.filter((item) => {
           return item.id == resp.userId;
@@ -123,26 +136,26 @@ export class ClientAPIService {
               if (ridsbot.includes(item.id)) {
                   return;
               }
-              
+
               // Пропускаем, если родитель уже добавлен в верхние элементы
               if (ridstop.includes(item.parent_id)) {
                   return;
               }
-              
+
               // Пропускаем, если родитель - сам пользователь
               if (item.parent_id == resp.userId) {
                   return;
               }
-              
+
               // Ищем родительский элемент
               let np = lst.find((item2) => {
                   return item2.id == item.parent_id;
               });
-              
+
               if (!np) {
                   return;
               }
-              
+
               // Добавляем родителя
               rlst.push(np);
               ridstop.push(np.id);
@@ -154,21 +167,21 @@ export class ClientAPIService {
               if (ridsbot.includes(item.id)) {
                   return;
               }
-              
+
               // Пропускаем, если родитель уже добавлен в верхние элементы
               if (ridstop.includes(item.parent_id)) {
                   return;
               }
-              
+
               // Ищем, есть ли элемент в rlst, который является родителем для текущего
               let op = rlst.find((item2) => {
                   return item.parent_id == item2.id;
               });
-              
+
               if (!op) {
                   return;
               }
-              
+
               // Добавляем ребенка
               rlst.push(item);
               ridsbot.push(item.id);
@@ -177,8 +190,8 @@ export class ClientAPIService {
 
       // Добавляем все отделы, которые еще не были добавлены
       lst.forEach((item) => {
-          if (item.type == 'Department' && 
-              !ridstop.includes(item.id) && 
+          if (item.type == 'Department' &&
+              !ridstop.includes(item.id) &&
               !ridsbot.includes(item.id)) {
               rlst.push(item);
           }
@@ -192,10 +205,12 @@ export class ClientAPIService {
         return lst2.filter((item2) => {
             return item2.id == item.id;
         })[0];
-      });
+      }).filter(Boolean);
 
+      // Определяем адресные группы только для магазинов пользователя
+      const userAddressIds = new Set(rlst3.map(item => item.parent_id));
       rlst3.push(...lst2.filter((item) => {
-        return item.type == 'Address';
+        return item.type == 'Address' && userAddressIds.has(item.id);
       }));
 
       return rlst3;
