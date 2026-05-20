@@ -7,6 +7,7 @@ import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
 import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
 import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
+import { SkuRashod } from 'src/db/sku_rashod.entity';
 
 @Injectable()
 export class AutoOrdersService {
@@ -28,6 +29,9 @@ export class AutoOrdersService {
 
         @InjectRepository(Sku_parameters)
         private skuParametersRepository: Repository<Sku_parameters>,
+
+        @InjectRepository(SkuRashod)
+        private skuRashodRepository: Repository<SkuRashod>,
     ) {}
 
     async checkToken(headers: Record<string, string>) {
@@ -64,11 +68,9 @@ export class AutoOrdersService {
         if (flagValues.includes('ADMIN')) return 'all';
         if (!flagValues.includes('TM_AUTOZAKAZI')) return [];
 
-        // Ищем TM_{hid} флаги
         const tmFlags = flagValues.filter(f => f.startsWith('TM_') && f !== 'TM_AUTOZAKAZI');
-        if (tmFlags.length === 0) return 'all'; // TM_AUTOZAKAZI без привязки = все
+        if (tmFlags.length === 0) return 'all';
 
-        // Находим address_code по hid
         const hids = tmFlags.map(f => parseInt(f.replace('TM_', ''), 10)).filter(n => !isNaN(n));
         const addresses = await this.addressRepository
             .createQueryBuilder('a')
@@ -103,11 +105,16 @@ export class AutoOrdersService {
             return { status: 'forbidden', message: 'Нет доступа к данному адресу' };
         }
 
-        const settings = await this.skuItemSettingsRepository.find({
-            where: { address_code: address },
-        });
+        const [settings, suppliers, rashodList] = await Promise.all([
+            this.skuItemSettingsRepository.find({ where: { address_code: address } }),
+            this.supplierSettingsRepository.find({
+                where: { address_code: address },
+                order: { supplier_name: 'ASC' },
+            }),
+            this.skuRashodRepository.find({ where: { address } }),
+        ]);
 
-        // Обогащаем названиями SKU
+        // Обогащаем названиями SKU из sku_parameters
         const skuIds = [...new Set(settings.map(s => s.sku_id))];
         const skus = skuIds.length
             ? await this.skuParametersRepository
@@ -117,20 +124,41 @@ export class AutoOrdersService {
             : [];
         const skuMap = Object.fromEntries(skus.map(s => [s.sku_id, s]));
 
-        const data = settings.map(s => ({
-            ...s,
-            sku_name: skuMap[s.sku_id]?.name ?? null,
-            sku_name_short: skuMap[s.sku_id]?.name_short ?? null,
-            packaging: skuMap[s.sku_id]?.packaging ?? null,
+        // Map суточного расхода: item → value
+        const rashodMap = Object.fromEntries(rashodList.map(r => [r.item, r.value]));
+
+        const items = settings.map(s => {
+            const sku = skuMap[s.sku_id];
+            const baseConsumption = rashodMap[s.sku_id] ?? null;
+            return {
+                ...s,
+                sku_name: sku?.name ?? null,
+                sku_name_short: sku?.name_short ?? null,
+                packaging: sku?.packaging ?? null,
+                // Кратность из sku_parameters — единый источник истины
+                order_multiple_sku: sku?.order_multiple ?? null,
+                packaging_multiple_sku: sku?.packaging_multiple ?? null,
+                // Суточный расход: базовое значение и с учётом множителя
+                daily_consumption_base: baseConsumption,
+                daily_consumption_effective: baseConsumption !== null
+                    ? Math.round(baseConsumption * s.consumption_factor * 1000) / 1000
+                    : null,
+            };
+        });
+
+        // Список поставщиков для выпадающего списка
+        const supplierOptions = suppliers.map(s => ({
+            role: s.supplier_role,
+            name: s.supplier_name,
         }));
 
-        return { status: 'success', data };
+        return { status: 'success', data: items, supplier_options: supplierOptions };
     }
 
     async updateItemSettings(
         address: string,
         sku_id: number,
-        updates: Partial<Pick<SkuItemSettings, 'supplier_role' | 'nz' | 'max_stock' | 'consumption_factor' | 'order_multiple' | 'packaging_multiple'>>,
+        updates: Partial<Pick<SkuItemSettings, 'supplier_role' | 'nz' | 'max_stock' | 'consumption_factor'>>,
         headers: Record<string, string>,
     ) {
         const check = await this.checkToken(headers);

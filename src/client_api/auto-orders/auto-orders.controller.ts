@@ -32,7 +32,7 @@ export class AutoOrdersController {
         const sku_id = parseInt(skuIdStr, 10);
         if (isNaN(sku_id)) return { status: 'error', message: 'Неверный sku_id' };
 
-        const allowed = ['supplier_role', 'nz', 'max_stock', 'consumption_factor', 'order_multiple', 'packaging_multiple'];
+        const allowed = ['supplier_role', 'nz', 'max_stock', 'consumption_factor'];
         const updates: any = {};
         for (const key of allowed) {
             if (body[key] !== undefined) updates[key] = body[key];

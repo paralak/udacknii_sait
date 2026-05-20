@@ -8,6 +8,7 @@ import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
 import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
 import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
+import { SkuRashod } from 'src/db/sku_rashod.entity';
 
 @Module({
     imports: [TypeOrmModule.forFeature([
@@ -17,6 +18,7 @@ import { Sku_parameters } from 'src/db/sku_parameters.entity';
         SkuItemSettings,
         SupplierSettings,
         Sku_parameters,
+        SkuRashod,
     ])],
     controllers: [AutoOrdersController],
     providers: [AutoOrdersService],
