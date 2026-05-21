@@ -262,19 +262,43 @@ export class AutoOrdersService {
         // Строим Map переопределений: "drink_code:sku_id" → row
         const overrideMap = new Map(addrRows.map(r => [`${r.drink_code}:${r.sku_id}`, r]));
 
+        // Обогащаем данными из sku_parameters (фасовки, название ингредиента)
+        const allSkuIds = [...new Set([...globalRows, ...addrRows].map(r => r.sku_id))];
+        const skuParams = allSkuIds.length
+            ? await this.skuParametersRepository
+                .createQueryBuilder('s')
+                .select(['s.sku_id', 's.name_short', 's.packaging', 's.packaging_supplier', 's.packaging_multiple'])
+                .where('s.sku_id IN (:...ids)', { ids: allSkuIds })
+                .getMany()
+            : [];
+        const skuMap = Object.fromEntries(skuParams.map(s => [s.sku_id, s]));
+
+        const enrich = (row: typeof globalRows[0], is_override: boolean, global_coeff: number | null) => {
+            const sku = skuMap[row.sku_id];
+            return {
+                ...row,
+                is_override,
+                global_coeff,
+                sku_name_short: sku?.name_short ?? null,
+                packaging: sku?.packaging ?? null,
+                packaging_supplier: sku?.packaging_supplier ?? null,
+                packaging_multiple: sku?.packaging_multiple ?? null,
+            };
+        };
+
         const data = globalRows.map(global => {
             const key = `${global.drink_code}:${global.sku_id}`;
             const override = overrideMap.get(key);
             return override
-                ? { ...override, is_override: true, global_coeff: global.coeff }
-                : { ...global, is_override: false, global_coeff: global.coeff };
+                ? enrich(override, true, global.coeff)
+                : enrich(global, false, global.coeff);
         });
 
-        // Добавляем строки, которые есть только у адреса (новые sku/напитки)
+        // Строки только у адреса (новые sku/напитки без глобального аналога)
         for (const addrRow of addrRows) {
             const key = `${addrRow.drink_code}:${addrRow.sku_id}`;
             if (!globalRows.some(g => `${g.drink_code}:${g.sku_id}` === key)) {
-                data.push({ ...addrRow, is_override: true, global_coeff: null });
+                data.push(enrich(addrRow, true, null));
             }
         }
 
