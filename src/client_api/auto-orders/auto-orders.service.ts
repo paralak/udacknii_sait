@@ -61,7 +61,7 @@ export class AutoOrdersService {
 
     /** Возвращает allowed address_codes для пользователя.
      *  ADMIN видит все, TM_{hid} — только свой адрес, TM_AUTOZAKAZI — все. */
-    private async getAllowedAddresses(userId: number): Promise<string[] | 'all'> {
+    async getAllowedAddresses(userId: number): Promise<string[] | 'all'> {
         const userFlags = await this.flagsRepository.find({ where: { hid: userId } });
         const flagValues = userFlags.map(f => f.flag);
 

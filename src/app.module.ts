@@ -1,6 +1,7 @@
 import {Module} from '@nestjs/common';
 import {AppController} from './app.controller';
 import {AppService} from './app.service';
+import { ScheduleModule } from '@nestjs/schedule';
 import {Bd_importModule} from './bd_import/bd_import.module';
 import { DBModule } from './db/db.module'; 
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -19,6 +20,7 @@ import { AutoOrdersModule } from './client_api/auto-orders/auto-orders.module';
 
 @Module({
     imports: [
+        ScheduleModule.forRoot(),
         Bd_importModule,
         TypeOrmModule.forRoot({
             type: 'mysql',

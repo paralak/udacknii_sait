@@ -1,9 +1,13 @@
-import { Controller, Get, Put, Headers, Query, Body } from '@nestjs/common';
+import { Controller, Get, Put, Post, Headers, Query, Body } from '@nestjs/common';
 import { AutoOrdersService } from './auto-orders.service';
+import { ConsumptionService } from './consumption.service';
 
 @Controller('client_api/auto-orders')
 export class AutoOrdersController {
-    constructor(private readonly autoOrdersService: AutoOrdersService) {}
+    constructor(
+        private readonly autoOrdersService: AutoOrdersService,
+        private readonly consumptionService: ConsumptionService,
+    ) {}
 
     @Get('addresses')
     getAddresses(@Headers() headers: Record<string, string>) {
@@ -48,6 +52,20 @@ export class AutoOrdersController {
     ) {
         if (!address) return { status: 'error', message: 'address не указан' };
         return this.autoOrdersService.getSupplierSettings(address, headers);
+    }
+
+    @Post('consumption/recalculate')
+    async recalculateConsumption(@Headers() headers: Record<string, string>) {
+        const check = await this.autoOrdersService.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const allowed = await this.autoOrdersService.getAllowedAddresses(check.userId);
+        if (Array.isArray(allowed) && allowed.length === 0) {
+            return { status: 'forbidden', message: 'Нет доступа' };
+        }
+
+        const updated = await this.consumptionService.calculate();
+        return { status: 'ok', updated };
     }
 
     @Put('suppliers')

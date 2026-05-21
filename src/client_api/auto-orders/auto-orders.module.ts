@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AutoOrdersController } from './auto-orders.controller';
 import { AutoOrdersService } from './auto-orders.service';
+import { ConsumptionService } from './consumption.service';
 import { Token } from 'src/db/token.entity';
 import { Flags } from 'src/db/flags.entity';
 import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
@@ -21,6 +22,6 @@ import { SkuRashod } from 'src/db/sku_rashod.entity';
         SkuRashod,
     ])],
     controllers: [AutoOrdersController],
-    providers: [AutoOrdersService],
+    providers: [AutoOrdersService, ConsumptionService],
 })
 export class AutoOrdersModule {}
