@@ -10,6 +10,7 @@ import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
 import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
 import { SkuRashod } from 'src/db/sku_rashod.entity';
+import { SkuTtk } from 'src/db/sku_ttk.entity';
 
 @Module({
     imports: [TypeOrmModule.forFeature([
@@ -20,6 +21,7 @@ import { SkuRashod } from 'src/db/sku_rashod.entity';
         SupplierSettings,
         Sku_parameters,
         SkuRashod,
+        SkuTtk,
     ])],
     controllers: [AutoOrdersController],
     providers: [AutoOrdersService, ConsumptionService],

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { Token } from 'src/db/token.entity';
 import { Flags } from 'src/db/flags.entity';
 import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
@@ -8,6 +8,7 @@ import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
 import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
 import { SkuRashod } from 'src/db/sku_rashod.entity';
+import { SkuTtk } from 'src/db/sku_ttk.entity';
 
 @Injectable()
 export class AutoOrdersService {
@@ -32,6 +33,9 @@ export class AutoOrdersService {
 
         @InjectRepository(SkuRashod)
         private skuRashodRepository: Repository<SkuRashod>,
+
+        @InjectRepository(SkuTtk)
+        private skuTtkRepository: Repository<SkuTtk>,
     ) {}
 
     async checkToken(headers: Record<string, string>) {
@@ -236,5 +240,99 @@ export class AutoOrdersService {
         await this.supplierSettingsRepository.save(record);
 
         return { status: 'success', data: record };
+    }
+
+    /** GET /ttk?address=A1
+     *  Возвращает полную матрицу для адреса: глобальные строки + адресные переопределения.
+     *  Поле is_override=true означает, что строка специфична для этого адреса. */
+    async getTtk(address: string, headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const allowed = await this.getAllowedAddresses(check.userId);
+        if (allowed !== 'all' && !allowed.includes(address)) {
+            return { status: 'forbidden', message: 'Нет доступа к данному адресу' };
+        }
+
+        const [globalRows, addrRows] = await Promise.all([
+            this.skuTtkRepository.find({ where: { address_code: IsNull() }, order: { drink_code: 'ASC', sku_id: 'ASC' } }),
+            this.skuTtkRepository.find({ where: { address_code: address }, order: { drink_code: 'ASC', sku_id: 'ASC' } }),
+        ]);
+
+        // Строим Map переопределений: "drink_code:sku_id" → row
+        const overrideMap = new Map(addrRows.map(r => [`${r.drink_code}:${r.sku_id}`, r]));
+
+        const data = globalRows.map(global => {
+            const key = `${global.drink_code}:${global.sku_id}`;
+            const override = overrideMap.get(key);
+            return override
+                ? { ...override, is_override: true, global_coeff: global.coeff }
+                : { ...global, is_override: false, global_coeff: global.coeff };
+        });
+
+        // Добавляем строки, которые есть только у адреса (новые sku/напитки)
+        for (const addrRow of addrRows) {
+            const key = `${addrRow.drink_code}:${addrRow.sku_id}`;
+            if (!globalRows.some(g => `${g.drink_code}:${g.sku_id}` === key)) {
+                data.push({ ...addrRow, is_override: true, global_coeff: null });
+            }
+        }
+
+        return { status: 'success', data };
+    }
+
+    /** PUT /ttk?address=A1&drink_code=ca02&sku_id=1  body: { coeff }
+     *  Создаёт или обновляет адресное переопределение коэффициента. */
+    async updateTtk(
+        address: string,
+        drink_code: string,
+        sku_id: number,
+        coeff: number,
+        headers: Record<string, string>,
+    ) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const allowed = await this.getAllowedAddresses(check.userId);
+        if (allowed !== 'all' && !allowed.includes(address)) {
+            return { status: 'forbidden', message: 'Нет доступа к данному адресу' };
+        }
+
+        if (typeof coeff !== 'number' || isNaN(coeff) || coeff < 0) {
+            return { status: 'error', message: 'coeff должен быть неотрицательным числом' };
+        }
+
+        let record = await this.skuTtkRepository.findOne({ where: { address_code: address, drink_code, sku_id } });
+        if (record) {
+            record.coeff = coeff;
+        } else {
+            record = this.skuTtkRepository.create({ address_code: address, drink_code, sku_id, coeff });
+        }
+        await this.skuTtkRepository.save(record);
+        return { status: 'success', data: record };
+    }
+
+    /** DELETE /ttk?address=A1&drink_code=ca02&sku_id=1
+     *  Удаляет адресное переопределение, возвращаясь к глобальному. */
+    async resetTtk(
+        address: string,
+        drink_code: string,
+        sku_id: number,
+        headers: Record<string, string>,
+    ) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const allowed = await this.getAllowedAddresses(check.userId);
+        if (allowed !== 'all' && !allowed.includes(address)) {
+            return { status: 'forbidden', message: 'Нет доступа к данному адресу' };
+        }
+
+        const record = await this.skuTtkRepository.findOne({ where: { address_code: address, drink_code, sku_id } });
+        if (!record) {
+            return { status: 'error', message: 'Переопределение не найдено' };
+        }
+        await this.skuTtkRepository.remove(record);
+        return { status: 'success' };
     }
 }

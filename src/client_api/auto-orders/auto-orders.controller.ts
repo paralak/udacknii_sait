@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Post, Headers, Query, Body } from '@nestjs/common';
+import { Controller, Get, Put, Post, Delete, Headers, Query, Body } from '@nestjs/common';
 import { AutoOrdersService } from './auto-orders.service';
 import { ConsumptionService } from './consumption.service';
 
@@ -66,6 +66,46 @@ export class AutoOrdersController {
 
         const updated = await this.consumptionService.calculate();
         return { status: 'ok', updated };
+    }
+
+    @Get('ttk')
+    getTtk(
+        @Query('address') address: string,
+        @Headers() headers: Record<string, string>,
+    ) {
+        if (!address) return { status: 'error', message: 'address не указан' };
+        return this.autoOrdersService.getTtk(address, headers);
+    }
+
+    @Put('ttk')
+    updateTtk(
+        @Query('address') address: string,
+        @Query('drink_code') drink_code: string,
+        @Query('sku_id') skuIdStr: string,
+        @Body() body: { coeff: number },
+        @Headers() headers: Record<string, string>,
+    ) {
+        if (!address || !drink_code || !skuIdStr) {
+            return { status: 'error', message: 'address, drink_code и sku_id обязательны' };
+        }
+        const sku_id = parseInt(skuIdStr, 10);
+        if (isNaN(sku_id)) return { status: 'error', message: 'Неверный sku_id' };
+        return this.autoOrdersService.updateTtk(address, drink_code, sku_id, body.coeff, headers);
+    }
+
+    @Delete('ttk')
+    resetTtk(
+        @Query('address') address: string,
+        @Query('drink_code') drink_code: string,
+        @Query('sku_id') skuIdStr: string,
+        @Headers() headers: Record<string, string>,
+    ) {
+        if (!address || !drink_code || !skuIdStr) {
+            return { status: 'error', message: 'address, drink_code и sku_id обязательны' };
+        }
+        const sku_id = parseInt(skuIdStr, 10);
+        if (isNaN(sku_id)) return { status: 'error', message: 'Неверный sku_id' };
+        return this.autoOrdersService.resetTtk(address, drink_code, sku_id, headers);
     }
 
     @Put('suppliers')
