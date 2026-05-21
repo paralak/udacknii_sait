@@ -69,18 +69,21 @@ export class ConsumptionService {
             sales[0].timestamp,
         );
 
-        // Накапливаем: { address: { sku_id: { weightedSum, totalWeight } } }
-        const acc: Record<string, Record<number, { wSum: number; wTotal: number }>> = {};
+        // Шаг 1: накапливаем суммарный расход по (address, sku_id, monthKey).
+        // Ключ monthKey = "YYYY-M" — уникален на месяц.
+        // Несколько напитков в одном месяце используют один sku_id → их вклады суммируются,
+        // а вес месяца фиксируется один раз, иначе знаменатель растёт кратно числу напитков.
+        type MonthBucket = { contribution: number; weight: number };
+        const acc: Record<string, Record<number, Record<string, MonthBucket>>> = {};
 
         for (const row of sales) {
             const matrix = CONSUMPTION_MATRIX[row.name];
             if (!matrix) continue;
 
-            // Сколько дней в этом месяце
             const ts = new Date(row.timestamp);
             const daysInMonth = new Date(ts.getFullYear(), ts.getMonth() + 1, 0).getDate();
+            const monthKey = `${ts.getFullYear()}-${ts.getMonth()}`;
 
-            // Давность в месяцах
             const monthsAgo = Math.round(
                 (latestTs.getTime() - ts.getTime()) / (1000 * 60 * 60 * 24 * 30.44),
             );
@@ -94,19 +97,27 @@ export class ConsumptionService {
                 const skuId = Number(skuIdStr);
                 const contribution = dailySales * coeff;
 
-                if (!acc[row.address][skuId]) {
-                    acc[row.address][skuId] = { wSum: 0, wTotal: 0 };
+                if (!acc[row.address][skuId]) acc[row.address][skuId] = {};
+                if (!acc[row.address][skuId][monthKey]) {
+                    acc[row.address][skuId][monthKey] = { contribution: 0, weight };
                 }
-                acc[row.address][skuId].wSum += weight * contribution;
-                acc[row.address][skuId].wTotal += weight;
+                // Суммируем вклады всех напитков за этот месяц
+                acc[row.address][skuId][monthKey].contribution += contribution;
             }
         }
 
-        // Upsert в sku_rashod
+        // Шаг 2: взвешенное среднее по месяцам → суточный расход sku_id на address
         let updatedCount = 0;
         for (const [address, items] of Object.entries(acc)) {
-            for (const [skuIdStr, { wSum, wTotal }] of Object.entries(items)) {
+            for (const [skuIdStr, months] of Object.entries(items)) {
                 const skuId = Number(skuIdStr);
+
+                let wSum = 0;
+                let wTotal = 0;
+                for (const { contribution, weight } of Object.values(months)) {
+                    wSum += weight * contribution;
+                    wTotal += weight;
+                }
                 if (wTotal === 0) continue;
 
                 const value = Math.round((wSum / wTotal) * 10000) / 10000;
