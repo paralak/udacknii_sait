@@ -139,6 +139,7 @@ export class AutoOrdersService {
                 sku_name: sku?.name ?? null,
                 sku_name_short: sku?.name_short ?? null,
                 packaging: sku?.packaging ?? null,
+                packaging_supplier: sku?.packaging_supplier ?? null,
                 // Кратность из sku_parameters — единый источник истины
                 order_multiple_sku: sku?.order_multiple ?? null,
                 packaging_multiple_sku: sku?.packaging_multiple ?? null,
