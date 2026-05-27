@@ -44,11 +44,13 @@ export class ClientAPIService {
           // Полная иерархия: все департаменты, подразделения и сотрудники
           return this.itemsRepository.find({
               where: { type: In(['Department', 'Company', 'Person']) },
+              order: { sort_order: 'ASC', id: 'ASC' },
           });
       } else {
           // Только структура департаментов и подразделений (без сотрудников)
           return this.itemsRepository.find({
               where: { type: In(['Department', 'Company']) },
+              order: { sort_order: 'ASC', id: 'ASC' },
           });
       }
   }
@@ -102,7 +104,7 @@ export class ClientAPIService {
   }
 
   async getAddressTree(authToken: string) {
-    let lst = await this.itemsRepository.find();
+    let lst = await this.itemsRepository.find({ order: { sort_order: 'ASC', id: 'ASC' } });
     let lst2 = await this.addressesRepository.find();
     let resp = await this.checkToken(authToken);
     if (resp.status != 'valid') {

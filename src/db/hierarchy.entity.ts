@@ -16,4 +16,7 @@ export class Hierarchy {
 
     @Column()
     description: string;
+
+    @Column({ default: 0 })
+    sort_order: number;
 }
