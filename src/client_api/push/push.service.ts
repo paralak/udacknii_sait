@@ -5,10 +5,14 @@ import * as webpush from 'web-push';
 import { PushSubscription } from 'src/db/push_subscription.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 
+if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    throw new Error('VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set');
+}
+
 webpush.setVapidDetails(
     'mailto:admin@u-org.ru',
-    process.env.VAPID_PUBLIC_KEY || 'BPtJVFSgA6KHQjd-DGw61Xi1PKcl99Sf_4NE8v8LH1Yb1pdR72A9vI2jVvKiXlTMB2zFwcX_ZSlNpuiK9gXFtYc',
-    process.env.VAPID_PRIVATE_KEY || 'mPwSuRyZKPaowW2qL3km4T3Y5CPRSvc_YkcAoWDJqW0',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
 );
 
 @Injectable()
@@ -108,6 +112,6 @@ export class PushService {
     }
 
     getVapidPublicKey() {
-        return process.env.VAPID_PUBLIC_KEY || 'BPtJVFSgA6KHQjd-DGw61Xi1PKcl99Sf_4NE8v8LH1Yb1pdR72A9vI2jVvKiXlTMB2zFwcX_ZSlNpuiK9gXFtYc';
+        return process.env.VAPID_PUBLIC_KEY!;
     }
 }
