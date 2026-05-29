@@ -2,11 +2,14 @@ import {Body, Controller, Get, Head, Post, Query} from '@nestjs/common';
 import { ChatService } from './chat.service';
 import {Headers} from '@nestjs/common';
 import { from } from 'rxjs';
+import { PushService } from '../push/push.service';
 
 @Controller('client_api/chat')
 export class ChatController {
-    constructor(private readonly chatService: ChatService) {
-    }
+    constructor(
+        private readonly chatService: ChatService,
+        private readonly pushService: PushService,
+    ) {}
 
     @Get('get_hid_for_chat')
     async getHidForChat(@Headers() headers: Record<string, string>) {
@@ -132,6 +135,14 @@ export class ChatController {
 
         const { chat_id, message, from_hid } = body;
         const sendResult = await this.chatService.sendMessage(chat_id, from_hid, message);
+
+        // Push-уведомление получателю (fire-and-forget, не блокируем ответ)
+        this.chatService.getChatRecipient(chat_id, from_hid).then(async ({ recipientHid, senderName }) => {
+            if (recipientHid) {
+                await this.pushService.sendToHid(recipientHid, senderName, message.slice(0, 100));
+            }
+        }).catch(() => {});
+
         return sendResult;
     }
 

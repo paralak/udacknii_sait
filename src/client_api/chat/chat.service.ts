@@ -311,6 +311,18 @@ export class ChatService {
         };
     }
 
+    async getChatRecipient(chatId: number, senderHid: number): Promise<{ recipientHid: number | null, senderName: string }> {
+        const chat = await this.chatListRepository.findOne({ where: { id: chatId } });
+        if (!chat) return { recipientHid: null, senderName: '' };
+
+        const recipientHid = chat.hid_from === senderHid ? chat.hid_to : chat.hid_from;
+        const sender = await this.hierarchyRepository.findOne({ where: { id: senderHid } });
+        return {
+            recipientHid,
+            senderName: sender?.name ?? 'Новое сообщение',
+        };
+    }
+
     //метод для проверки необходимости обновления чата, принимает id чата и время последнего обновления на клиенте, возвращает true если есть новые сообщения, false если нет
     async checkForChatUpdates(chatId: number, lastUpdateTime: Date) {
         let newMessages = await this.chatBukketRepository.find({

@@ -7,15 +7,19 @@ import { Chat_bukket } from 'src/db/chat_bukket.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Hid_for_chat } from 'src/db/hid_for_chat.entity';
+import { PushModule } from '../push/push.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([
-        Chat_list,
-        Chat_bukket,
-        Hierarchy,
-        Token,
-        Hid_for_chat,
-    ])],
+    imports: [
+        TypeOrmModule.forFeature([
+            Chat_list,
+            Chat_bukket,
+            Hierarchy,
+            Token,
+            Hid_for_chat,
+        ]),
+        PushModule,
+    ],
     controllers: [ChatController],
     providers: [ChatService],
 })
