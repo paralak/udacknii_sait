@@ -6,7 +6,7 @@ import { Chat_list } from 'src/db/chat_list.entity';
 import { Hid_for_chat } from 'src/db/hid_for_chat.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
-import { In, Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 
 @Injectable()
 export class ChatService {
@@ -326,7 +326,7 @@ export class ChatService {
     //метод для проверки необходимости обновления чата, принимает id чата и время последнего обновления на клиенте, возвращает true если есть новые сообщения, false если нет
     async checkForChatUpdates(chatId: number, lastUpdateTime: Date) {
         let newMessages = await this.chatBukketRepository.find({
-            where: { chat_id: chatId, timestamp: In([lastUpdateTime, new Date()]) }
+            where: { chat_id: chatId, timestamp: Between(lastUpdateDate, new Date()) }
         });
         // если есть новые сообщения, возвращаем true и все сообщения сообщения, иначе false, так же возвращаем текущее время для клиента, для обновления чата в реальном времени
         let messages = await this.chatBukketRepository.find({
