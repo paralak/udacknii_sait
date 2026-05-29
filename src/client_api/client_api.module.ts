@@ -22,6 +22,7 @@ import { UserProfile } from 'src/db/user_profile.entity';
     ],
     controllers: [ClientAPIController],
     providers: [ClientAPIService],
+    exports: [ClientAPIService],
 })
 export class ClientAPIModule {
 }
