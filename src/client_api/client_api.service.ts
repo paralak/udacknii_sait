@@ -111,6 +111,11 @@ export class ClientAPIService {
         return resp;
     }
 
+    // ADMIN видит все адреса
+    if (resp.flags.includes('ADMIN')) {
+        return lst2;
+    }
+
     // TM-пользователи: фильтруем по флагам TM_{id}
     const tmStoreIds = resp.flags
         .filter(f => /^TM_\d+$/.test(f))
