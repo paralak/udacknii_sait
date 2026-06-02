@@ -326,7 +326,7 @@ export class ChatService {
     //метод для проверки необходимости обновления чата, принимает id чата и время последнего обновления на клиенте, возвращает true если есть новые сообщения, false если нет
     async checkForChatUpdates(chatId: number, lastUpdateTime: Date) {
         let newMessages = await this.chatBukketRepository.find({
-            where: { chat_id: chatId, timestamp: Between(lastUpdateDate, new Date()) }
+            where: { chat_id: chatId, timestamp: Between(lastUpdateTime, new Date()) }
         });
         // если есть новые сообщения, возвращаем true и все сообщения сообщения, иначе false, так же возвращаем текущее время для клиента, для обновления чата в реальном времени
         let messages = await this.chatBukketRepository.find({
