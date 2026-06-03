@@ -292,33 +292,31 @@ export class ClientAPIService {
   }
 
   async login(login: string, hashedpassword: string) {
-    // Ищем пользователя по логину и хешу пароля
-    const user = await this.loginRepository.findOne({
-      where: { login, hashedpassword },
-    });
-    if (!user) {
+    try {
+      const user = await this.loginRepository.findOne({
+        where: { login, hashedpassword },
+      });
+      if (!user) {
+        return { status: 'error', message: 'Неверный логин или пароль' };
+      }
+      const newToken = Math.random().toString(36).substring(2, 18);
+      const expiredDate = new Date();
+      expiredDate.setHours(expiredDate.getHours() + 72);
+      const tokenEntity = this.tokenRepository.create({
+        token: newToken,
+        user_id: user.hid,
+        expired: expiredDate,
+      });
+      await this.tokenRepository.save(tokenEntity);
       return {
-        status: 'error',
-        message: 'Неверный логин или пароль',
+        status: 'success',
+        message: 'Успешный вход',
+        token: newToken,
+        userId: user.hid,
       };
+    } catch (err: any) {
+      console.error('[login] DB error:', err?.message, err?.stack);
+      return { status: 'error', message: 'Ошибка сервера при входе' };
     }
-    // Генерируем новый токен из 16 случайных символов
-    const newToken = Math.random().toString(36).substring(2, 18);
-    const expiredDate = new Date();
-    expiredDate.setHours(expiredDate.getHours() + 72); // Токен действителен 3 дня
-    // Сохраняем токен в базе данных
-    const tokenEntity = this.tokenRepository.create({
-      token: newToken,
-      user_id: user.hid,
-      expired: expiredDate,
-    });
-    await this.tokenRepository.save(tokenEntity);
-    return {
-      status: 'success',
-      message: 'Успешный вход',
-      token: newToken,
-      userId: user.hid,
-    };
-
   }
 }
