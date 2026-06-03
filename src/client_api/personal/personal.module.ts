@@ -5,14 +5,20 @@ import { PersonalService } from './personal.service';
 import { Personal_ls } from 'src/db/personal/personal_ls.entity';
 import { Personal_ls_info } from 'src/db/personal/personal_ls_info.entity';
 import { Personal_pos } from 'src/db/personal/personal_pos.entity';
+import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
 import { Token } from 'src/db/token.entity';
+import { Hierarchy } from 'src/db/hierarchy.entity';
+import { Flags } from 'src/db/flags.entity';
 
 @Module({
     imports: [TypeOrmModule.forFeature([
-        Personal_ls, 
-        Personal_ls_info, 
-        Personal_pos, 
+        Personal_ls,
+        Personal_ls_info,
+        Personal_pos,
+        ManagerLsReport,
         Token,
+        Hierarchy,
+        Flags,
     ])],
     controllers: [PersonalController],
     providers: [PersonalService],

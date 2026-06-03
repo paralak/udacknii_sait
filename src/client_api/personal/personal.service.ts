@@ -4,7 +4,10 @@ import { Repository } from 'typeorm';
 import { Personal_ls_info } from 'src/db/personal/personal_ls_info.entity';
 import { Personal_pos } from 'src/db/personal/personal_pos.entity';
 import { Personal_ls } from 'src/db/personal/personal_ls.entity';
+import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
 import { Token } from 'src/db/token.entity';
+import { Hierarchy } from 'src/db/hierarchy.entity';
+import { Flags } from 'src/db/flags.entity';
 import { PersonalInfoDTO } from 'src/db/dto/personal_info.dto';
 import { PersonalPosDTO } from 'src/db/dto/personal_pos.dto';
 import { PersonalLsDTO } from 'src/db/dto/personal_ls.dto';
@@ -21,8 +24,17 @@ export class PersonalService {
         @InjectRepository(Personal_ls)
         private personalLsRepository: Repository<Personal_ls>,
 
+        @InjectRepository(ManagerLsReport)
+        private managerLsReportRepository: Repository<ManagerLsReport>,
+
         @InjectRepository(Token)
         private tokenRepository: Repository<Token>,
+
+        @InjectRepository(Hierarchy)
+        private hierarchyRepository: Repository<Hierarchy>,
+
+        @InjectRepository(Flags)
+        private flagsRepository: Repository<Flags>,
     ) {}
 
     async getInfo(lsid: string | undefined, headers: Record<string, string>) {
@@ -375,6 +387,258 @@ export class PersonalService {
         // нельзя меня pos_id у линейного сотрудника напрямую, для этого нужно обновлять должность, указав lsid линейного сотрудника, тогда в сервисе будет логика, которая будет обнулять pos_id у всех остальных линейных сотрудников, которые занимают эту должность, и ставить pos_id у текущего линейного сотрудника
         
         return await this.personalLsRepository.save(existingLs);
+    }
+
+    private getSubtreeIds(hierarchy: Hierarchy[], rootId: number): Set<number> {
+        const result = new Set<number>();
+        result.add(rootId);
+        const queue = [rootId];
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            hierarchy.filter(h => h.parent_id === current).forEach(child => {
+                result.add(child.id);
+                queue.push(child.id);
+            });
+        }
+        return result;
+    }
+
+    async getManagerStores(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const managerHid: number = check.userId;
+        const flags = await this.flagsRepository.find({ where: { hid: managerHid } });
+        const flagValues = flags.map(f => f.flag);
+
+        if (!flagValues.includes('MANAGER') && !flagValues.includes('ADMIN')) {
+            return { status: 'error', message: 'Нет доступа' };
+        }
+
+        const allHierarchy = await this.hierarchyRepository.find();
+        let accessibleStoreHids: number[] = [];
+
+        if (flagValues.includes('ADMIN')) {
+            accessibleStoreHids = allHierarchy
+                .filter(h => h.type === 'Store')
+                .map(h => h.id);
+        } else {
+            const tmStoreIds = flagValues
+                .filter(f => /^TM_\d+$/.test(f))
+                .map(f => parseInt(f.replace('TM_', '')));
+
+            if (tmStoreIds.length > 0) {
+                accessibleStoreHids = tmStoreIds;
+            } else {
+                // MANAGER without TM flags: try hierarchy traversal, fall back to all stores
+                const managerNode = allHierarchy.find(h => h.id === managerHid);
+                if (managerNode && managerNode.parent_id > 0) {
+                    const subtreeIds = this.getSubtreeIds(allHierarchy, managerNode.parent_id);
+                    accessibleStoreHids = allHierarchy
+                        .filter(h => h.type === 'Store' && subtreeIds.has(h.id))
+                        .map(h => h.id);
+                }
+                if (accessibleStoreHids.length === 0) {
+                    accessibleStoreHids = allHierarchy
+                        .filter(h => h.type === 'Store')
+                        .map(h => h.id);
+                }
+            }
+        }
+
+        const allPositions = await this.personalPosRepository.find();
+        const storeHidsWithPositions = [...new Set(
+            allPositions
+                .filter(p => accessibleStoreHids.includes(p.hid))
+                .map(p => p.hid)
+        )];
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const todayReports = await this.managerLsReportRepository
+            .createQueryBuilder('r')
+            .where('r.manager_hid = :managerHid', { managerHid })
+            .andWhere('r.filled_at >= :today', { today })
+            .andWhere('r.filled_at < :tomorrow', { tomorrow })
+            .getMany();
+
+        const filledTodayHids = new Set(todayReports.map(r => r.store_hid));
+
+        const lastReportMap = new Map<number, Date | null>();
+        for (const storeHid of storeHidsWithPositions) {
+            const lastReport = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .andWhere('r.manager_hid = :managerHid', { managerHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+            lastReportMap.set(storeHid, lastReport?.filled_at || null);
+        }
+
+        const allLs = await this.personalLsRepository.find();
+        const allInfo = await this.personalLsInfoRepository.find();
+
+        const stores: any[] = [];
+        for (const storeHid of storeHidsWithPositions) {
+            const storeNode = allHierarchy.find(h => h.id === storeHid);
+            const positions = allPositions
+                .filter(p => p.hid === storeHid)
+                .map(p => {
+                    const staff = p.lsid ? allLs.find(ls => ls.lsid === p.lsid) || null : null;
+                    const staffInfo = p.lsid
+                        ? allInfo.filter(i => i.lsid === p.lsid)
+                        : [];
+                    return { ...p, staff, staffInfo };
+                });
+
+            stores.push({
+                hid: storeHid,
+                name: storeNode?.name || `Магазин ${storeHid}`,
+                lastFilledAt: lastReportMap.get(storeHid) || null,
+                filledToday: filledTodayHids.has(storeHid),
+                positions,
+            });
+        }
+
+        const pending = stores
+            .filter(s => !s.filledToday)
+            .sort((a, b) => {
+                if (!a.lastFilledAt && !b.lastFilledAt) return 0;
+                if (!a.lastFilledAt) return -1;
+                if (!b.lastFilledAt) return 1;
+                return new Date(a.lastFilledAt).getTime() - new Date(b.lastFilledAt).getTime();
+            });
+
+        return {
+            status: 'success',
+            stores: pending,
+            totalFilledToday: filledTodayHids.size,
+            totalStores: storeHidsWithPositions.length,
+        };
+    }
+
+    async saveManagerStore(
+        storeHid: number,
+        positions: any[],
+        headers: Record<string, string>,
+    ) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const managerHid: number = check.userId;
+
+        for (const pos of positions) {
+            if (pos.delete && pos.id) {
+                const existing = await this.personalPosRepository.findOne({ where: { id: pos.id } });
+                if (existing) {
+                    const lsList = await this.personalLsRepository.find({ where: { pos_id: pos.id } });
+                    for (const ls of lsList) {
+                        ls.pos_id = null;
+                        await this.personalLsRepository.save(ls);
+                    }
+                    await this.personalPosRepository.remove(existing);
+                }
+                continue;
+            }
+
+            let posEntity: Personal_pos;
+            if (pos.id) {
+                posEntity = await this.personalPosRepository.findOne({ where: { id: pos.id } });
+                if (!posEntity) continue;
+                posEntity.name = pos.name;
+            } else {
+                posEntity = this.personalPosRepository.create({ hid: storeHid, name: pos.name });
+                posEntity = await this.personalPosRepository.save(posEntity);
+            }
+
+            if (pos.lsid) {
+                const ls = await this.personalLsRepository.findOne({ where: { lsid: pos.lsid } });
+                if (ls) {
+                    const prevOwners = await this.personalLsRepository.find({ where: { pos_id: posEntity.id } });
+                    for (const prev of prevOwners) {
+                        if (prev.lsid !== pos.lsid) {
+                            prev.pos_id = null;
+                            await this.personalLsRepository.save(prev);
+                        }
+                    }
+                    const oldPos = await this.personalPosRepository.findOne({ where: { lsid: pos.lsid } });
+                    if (oldPos && oldPos.id !== posEntity.id) {
+                        oldPos.lsid = null;
+                        await this.personalPosRepository.save(oldPos);
+                    }
+                    posEntity.lsid = pos.lsid;
+                    ls.pos_id = posEntity.id;
+                    await this.personalLsRepository.save(ls);
+
+                    if (pos.staff) {
+                        if (pos.staff.fio) ls.fio = pos.staff.fio;
+                        if (pos.staff.doe) ls.doe = pos.staff.doe;
+                        await this.personalLsRepository.save(ls);
+
+                        const LABEL_MAP: Record<string, string> = {
+                            middleName: 'Оотчество',
+                            birthDate: 'Дата ррождения',
+                            citizenship: 'Ггражданство',
+                            registration: 'Ррегистрация',
+                            contractType: 'Ттип отношений',
+                            department: 'Ддепартамент',
+                            email: 'Eуmail',
+                            phone: 'Туелефон',
+                        };
+
+                        for (const [key, label] of Object.entries(LABEL_MAP)) {
+                            const value = pos.staff[key];
+                            if (value === undefined) continue;
+                            const existing = await this.personalLsInfoRepository.findOne({
+                                where: { lsid: pos.lsid, label },
+                            });
+                            if (existing) {
+                                existing.value = value || '';
+                                await this.personalLsInfoRepository.save(existing);
+                            } else if (value) {
+                                const newInfo = this.personalLsInfoRepository.create({
+                                    lsid: pos.lsid,
+                                    label,
+                                    value,
+                                    type: 'Текст',
+                                });
+                                await this.personalLsInfoRepository.save(newInfo);
+                            }
+                        }
+                    }
+                }
+            } else {
+                const prevOwners = await this.personalLsRepository.find({ where: { pos_id: posEntity.id } });
+                for (const prev of prevOwners) {
+                    prev.pos_id = null;
+                    await this.personalLsRepository.save(prev);
+                }
+                posEntity.lsid = null;
+            }
+
+            await this.personalPosRepository.save(posEntity);
+        }
+
+        const snapshot = positions.map(p => ({
+            id: p.id,
+            name: p.name,
+            delete: p.delete,
+            lsid: p.lsid,
+            staff: p.staff || null,
+        }));
+
+        const report = this.managerLsReportRepository.create({
+            store_hid: storeHid,
+            manager_hid: managerHid,
+            filled_at: new Date(),
+            data: { positions: snapshot },
+        });
+        await this.managerLsReportRepository.save(report);
+
+        return { status: 'success' };
     }
 
     async deleteLs(lsid: string, headers: Record<string, string>) {

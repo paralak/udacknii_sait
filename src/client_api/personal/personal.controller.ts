@@ -183,4 +183,20 @@ export class PersonalController {
         return this.personalService.deleteLs(lsid, headers);
     }
 
+    @Get('manager/stores')
+    getManagerStores(@Headers() headers: Record<string, string>) {
+        return this.personalService.getManagerStores(headers);
+    }
+
+    @Post('manager/save-store')
+    saveManagerStore(
+        @Body() body: { store_hid: number; positions: any[] },
+        @Headers() headers: Record<string, string>,
+    ) {
+        if (!body.store_hid || !Array.isArray(body.positions)) {
+            return { status: 'error', message: 'Неверные данные' };
+        }
+        return this.personalService.saveManagerStore(body.store_hid, body.positions, headers);
+    }
+
 }
