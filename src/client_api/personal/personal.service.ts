@@ -585,6 +585,9 @@ export class PersonalService {
                             children: 'Дети',
                             vacationStart: 'Начало отпуска',
                             vacationEnd: 'Конец отпуска',
+                            phone: 'Телефон',
+                            address: 'Адрес',
+                            phoneBackup: 'Запасной телефон',
                         };
 
                         for (const [key, label] of Object.entries(LABEL_MAP)) {
