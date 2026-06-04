@@ -575,18 +575,16 @@ export class PersonalService {
 
                     if (pos.staff) {
                         if (pos.staff.fio) ls.fio = pos.staff.fio;
-                        if (pos.staff.doe) ls.doe = pos.staff.doe;
                         await this.personalLsRepository.save(ls);
 
                         const LABEL_MAP: Record<string, string> = {
-                            middleName: 'Оотчество',
                             birthDate: 'Дата ррождения',
                             citizenship: 'Ггражданство',
-                            registration: 'Ррегистрация',
                             contractType: 'Ттип отношений',
-                            department: 'Ддепартамент',
-                            email: 'Eуmail',
-                            phone: 'Туелефон',
+                            maritalStatus: 'Семейное положение',
+                            children: 'Дети',
+                            vacationStart: 'Начало отпуска',
+                            vacationEnd: 'Конец отпуска',
                         };
 
                         for (const [key, label] of Object.entries(LABEL_MAP)) {
