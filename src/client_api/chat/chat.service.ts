@@ -6,6 +6,7 @@ import { Chat_list } from 'src/db/chat_list.entity';
 import { Hid_for_chat } from 'src/db/hid_for_chat.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
+import { Flags } from 'src/db/flags.entity';
 import { Between, In, Repository } from 'typeorm';
 
 @Injectable()
@@ -24,7 +25,10 @@ export class ChatService {
         private chatBukketRepository: Repository<Chat_bukket>,
 
         @InjectRepository(Chat_list)
-        private chatListRepository: Repository<Chat_list>
+        private chatListRepository: Repository<Chat_list>,
+
+        @InjectRepository(Flags)
+        private flagsRepository: Repository<Flags>
     ) {}
 
     async checkToken(token: string) {
@@ -346,5 +350,26 @@ export class ChatService {
             data: false,
             current_time: new Date(),
         };
+    }
+
+    async getFlags(hid: number): Promise<string[]> {
+        const rows = await this.flagsRepository.find({ where: { hid } });
+        return rows.map(r => r.flag);
+    }
+
+    async syncChatUsers(requesterHid: number) {
+        const flags = await this.flagsRepository.find({ where: { flag: 'CHAT' } });
+        const existing = await this.hidForChatRepository.find();
+        const existingHids = new Set(existing.map(r => r.hid));
+
+        let added = 0;
+        for (const f of flags) {
+            if (!existingHids.has(f.hid)) {
+                const entry = this.hidForChatRepository.create({ hid: f.hid, access: f.hid });
+                await this.hidForChatRepository.save(entry);
+                added++;
+            }
+        }
+        return { status: 'success', added, total: flags.length };
     }
 }

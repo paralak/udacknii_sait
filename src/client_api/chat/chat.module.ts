@@ -7,6 +7,7 @@ import { Chat_bukket } from 'src/db/chat_bukket.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Token } from 'src/db/token.entity';
 import { Hid_for_chat } from 'src/db/hid_for_chat.entity';
+import { Flags } from 'src/db/flags.entity';
 import { PushModule } from '../push/push.module';
 
 @Module({
@@ -17,6 +18,7 @@ import { PushModule } from '../push/push.module';
             Hierarchy,
             Token,
             Hid_for_chat,
+            Flags,
         ]),
         PushModule,
     ],

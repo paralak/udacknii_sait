@@ -146,6 +146,19 @@ export class ChatController {
         return sendResult;
     }
 
+    @Get('sync-chat-users')
+    async syncChatUsers(@Headers() headers: Record<string, string>) {
+        const cookies = headers['cookie'];
+        const token = cookies?.match(/auth_token=([^;]+)/)?.[1];
+        if (!token) return { status: 'error', message: 'Нет токена' };
+        const tokenCheck = await this.chatService.checkToken(token);
+        if (tokenCheck.status === 'error') return tokenCheck;
+        // только ADMIN
+        const flags = await this.chatService.getFlags(tokenCheck.data);
+        if (!flags.includes('ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        return this.chatService.syncChatUsers(tokenCheck.data);
+    }
+
     @Get('check_for_chat_updates')
     async checkForChatUpdates(@Headers() headers: Record<string, string>, @Query('chat_id') chatId: number, @Query('last_message_time') lastUpdateTime: string) {
         const cookies = headers['cookie'];

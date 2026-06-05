@@ -588,6 +588,7 @@ export class PersonalService {
                             phone: 'Телефон',
                             address: 'Адрес',
                             phoneBackup: 'Запасной телефон',
+                            departureDate: 'Дата ухода',
                         };
 
                         for (const [key, label] of Object.entries(LABEL_MAP)) {
