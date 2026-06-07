@@ -378,9 +378,21 @@ export class CalculationService {
                     grouped.get(key)!.push(o);
                 }
 
+                // Текущие стоки для добора — общие на весь цикл по группам,
+                // чтобы добор предыдущей поставки учитывался в следующей
+                const supplierPoolStocks = new Map<string, Map<number, number>>();
+                for (const [role, items] of supplierPool) {
+                    const m = new Map<number, number>();
+                    for (const p of items) m.set(p.product_id, p.stockOur);
+                    supplierPoolStocks.set(role, m);
+                }
+
+                const sortedGroupEntries = Array.from(grouped.entries()).sort() as [string, typeof addrOrders][];
+
                 // Для каждой группы — проверяем min_order_sum и выводим список позиций
                 const supplierSettingsCache = new Map<string, SupplierSettings>();
-                for (const [key, orders] of Array.from(grouped.entries()).sort()) {
+                for (let gi = 0; gi < sortedGroupEntries.length; gi++) {
+                    const [key, orders] = sortedGroupEntries[gi];
                     const [supplierRole, dateStr] = key.split('__');
                     let suppSett = supplierSettingsCache.get(supplierRole);
                     if (!suppSett) {
@@ -405,15 +417,15 @@ export class CalculationService {
 
                         // Добор до минимальной суммы:
                         // берём ВСЕ позиции поставщика на этом адресе (не только те, что уже в заказе),
-                        // выбираем позицию с наименьшим «осталось дней по расходу» = stockOur / dailyConsumption
+                        // выбираем позицию с наименьшим «осталось дней по расходу» = stock / dailyConsumption.
+                        // supplierPoolStocks несут стоки между поставками — добор предыдущей даты учитывается здесь.
                         if (missingPrices === 0 && totalSum > 0 && totalSum < minSum) {
                             const pool = (supplierPool.get(supplierRole) ?? [])
                                 .filter(p => p.pricePerUnit !== undefined && p.orderMult > 0);
                             const initialSumBeforeTopup = totalSum;
                             const delivDate = new Date(dateStr);
 
-                            // Локальная копия stockOur для симуляции добора
-                            const poolStocks = new Map<number, number>(pool.map(p => [p.product_id, p.stockOur]));
+                            const poolStocks = supplierPoolStocks.get(supplierRole) ?? new Map<number, number>();
 
                             while (totalSum < minSum && pool.length > 0) {
                                 // «Дней запаса» = текущий_остаток / суточный_расход
@@ -478,6 +490,31 @@ export class CalculationService {
                         level: 'info', address: code, sku_id: 0, sku_name: '',
                         message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLinesAfterTopup}${sumSuffix}`,
                     });
+
+                    // ── Обновляем стоки для следующей поставки этого поставщика ──
+                    const stocks = supplierPoolStocks.get(supplierRole);
+                    if (stocks) {
+                        // Прибавляем всё заказанное в этой группе (включая добор)
+                        for (const o of orders) {
+                            const pItem = supplierPool.get(supplierRole)?.find(p => p.product_id === o.product_id);
+                            if (pItem) {
+                                const addedOur = o.count * pItem.packMult;
+                                stocks.set(o.product_id, (stocks.get(o.product_id) ?? 0) + addedOur);
+                            }
+                        }
+                        // Вычитаем расход до следующей поставки этого же поставщика
+                        const nextEntry = sortedGroupEntries.slice(gi + 1).find(([k]) => k.startsWith(supplierRole + '__'));
+                        if (nextEntry) {
+                            const nextDateStr = nextEntry[0].split('__')[1];
+                            const daysToNext = Math.round((new Date(nextDateStr).getTime() - new Date(dateStr).getTime()) / 86400000);
+                            for (const [productId, stock] of stocks) {
+                                const pItem = supplierPool.get(supplierRole)?.find(p => p.product_id === productId);
+                                if (pItem) {
+                                    stocks.set(productId, Math.max(0, stock - pItem.dailyConsumption * daysToNext));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
