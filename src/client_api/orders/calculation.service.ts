@@ -77,31 +77,39 @@ export class CalculationService {
     // delivery_days хранится как 0=Пн...6=Вс
     // JS Date.getDay() возвращает 0=Вс...6=Сб
     // Конвертация: systemDay = (jsDay + 6) % 7
-    private getNextDeliveryDate(deliveryDaysStr: string, leadTimeDays: number, fromDate: Date): Date | null {
+    private static readonly CALC_HORIZON_DAYS = 42; // месяц + 2 недели
+
+    private getDeliveryDatesInPeriod(deliveryDaysStr: string, leadTimeDays: number, fromDate: Date): Date[] {
         const deliveryDays = deliveryDaysStr
             .split(',')
             .map(s => parseInt(s.trim()))
             .filter(n => !isNaN(n) && n >= 0 && n <= 6);
 
-        if (deliveryDays.length === 0) return null;
+        if (deliveryDays.length === 0) return [];
 
         const today = new Date(fromDate);
         today.setHours(0, 0, 0, 0);
 
-        for (let i = 1; i <= 60; i++) {
+        const horizon = new Date(today);
+        horizon.setDate(today.getDate() + CalculationService.CALC_HORIZON_DAYS);
+
+        const result: Date[] = [];
+
+        for (let i = 1; i <= CalculationService.CALC_HORIZON_DAYS + 7; i++) {
             const d = new Date(today);
             d.setDate(today.getDate() + i);
-            const systemDay = (d.getDay() + 6) % 7; // конвертация из JS в систему
+            if (d > horizon) break;
+
+            const systemDay = (d.getDay() + 6) % 7;
             if (deliveryDays.includes(systemDay)) {
-                // Дедлайн заказа: за lead_time_days до доставки
                 const orderDeadline = new Date(d);
                 orderDeadline.setDate(d.getDate() - leadTimeDays);
                 if (orderDeadline >= today) {
-                    return d;
+                    result.push(new Date(d));
                 }
             }
         }
-        return null;
+        return result;
     }
 
     async calculate(dryRun: boolean, headers: Record<string, string>): Promise<CalcResult> {
@@ -209,39 +217,48 @@ export class CalculationService {
                     continue;
                 }
 
-                // ── Расчёт ─────────────────────────────────────
-                const nextDelivery = this.getNextDeliveryDate(supplier.delivery_days, leadTime, today);
-                if (!nextDelivery) {
-                    logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Не удалось определить ближайшую дату доставки` });
+                // ── Расчёт на период ───────────────────────────
+                const deliveryDates = this.getDeliveryDatesInPeriod(supplier.delivery_days, leadTime, today);
+                if (deliveryDates.length === 0) {
+                    logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Нет дат доставки в расчётном периоде (${CalculationService.CALC_HORIZON_DAYS} дней)` });
                     items_error++;
                     continue;
                 }
 
                 const dailyConsumption = rashodValue * (item.consumption_factor ?? 1);
-                // Нужно покрыть: НЗ + потребление за период (lead_time + запас на 1 неделю)
-                const coverDays = leadTime + 7;
-                const neededOurUnits = item.nz + dailyConsumption * coverDays;
-                const neededSupplierUnits = neededOurUnits / packMult;
                 const orderMult = item.order_multiple ?? sku?.order_multiple ?? 1;
-                const finalQty = Math.max(1, Math.ceil(neededSupplierUnits / orderMult) * orderMult);
 
-                const deliveryDateStr = nextDelivery.toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                logs.push({
-                    level: 'success',
-                    address: code,
-                    sku_id: item.sku_id,
-                    sku_name: skuName,
-                    message: `${finalQty} ${sku?.packaging_supplier || 'уп'} → ${supplier.supplier_name} (доставка ${deliveryDateStr}) | расход: ${dailyConsumption.toFixed(2)}/день, НЗ: ${item.nz}, lead_time: ${leadTime}д, упаковка: ×${packMult}`,
-                });
+                for (let di = 0; di < deliveryDates.length; di++) {
+                    const deliveryDate = deliveryDates[di];
+                    const nextDeliveryDate = deliveryDates[di + 1] ?? null;
+
+                    // Покрываем период до следующей поставки + НЗ
+                    const daysUntilNext = nextDeliveryDate
+                        ? Math.round((nextDeliveryDate.getTime() - deliveryDate.getTime()) / 86400000)
+                        : 7; // для последней поставки — 7 дней буфер
+
+                    const neededOurUnits = item.nz + dailyConsumption * daysUntilNext;
+                    const neededSupplierUnits = neededOurUnits / packMult;
+                    const finalQty = Math.max(1, Math.ceil(neededSupplierUnits / orderMult) * orderMult);
+
+                    const dateStr = deliveryDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                    pendingOrders.push({
+                        address: code,
+                        supplier: item.supplier_role,
+                        product_id: item.sku_id,
+                        count: finalQty,
+                        date: deliveryDate,
+                    });
+
+                    logs.push({
+                        level: 'success',
+                        address: code,
+                        sku_id: item.sku_id,
+                        sku_name: skuName,
+                        message: `${dateStr}: ${finalQty} ${sku?.packaging_supplier || 'уп'} (покрытие ${daysUntilNext}д, расход ${dailyConsumption.toFixed(2)}/д, НЗ ${item.nz})`,
+                    });
+                }
                 items_ok++;
-
-                pendingOrders.push({
-                    address: code,
-                    supplier: item.supplier_role,
-                    product_id: item.sku_id,
-                    count: finalQty,
-                    date: nextDelivery,
-                });
             }
         }
 
