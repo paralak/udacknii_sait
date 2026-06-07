@@ -2,14 +2,30 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { CalculationService } from './calculation.service';
 import { OrderAccess } from 'src/db/order_access.entity';
 import { Token } from 'src/db/token.entity';
 import { OrdersTable } from 'src/db/orders_table.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
+import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
+import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
+import { SupplierSettings } from 'src/db/supplier_settings.entity';
+import { SkuRashod } from 'src/db/sku_rashod.entity';
+import { Flags } from 'src/db/flags.entity';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([OrderAccess, Token, Sku_parameters, OrdersTable])],
+    imports: [TypeOrmModule.forFeature([
+        OrderAccess,
+        Token,
+        Sku_parameters,
+        OrdersTable,
+        AutoOrdersAddress,
+        SkuItemSettings,
+        SupplierSettings,
+        SkuRashod,
+        Flags,
+    ])],
     controllers: [OrdersController],
-    providers: [OrdersService],
+    providers: [OrdersService, CalculationService],
 })
 export class OrdersModule {}

@@ -1,9 +1,21 @@
-import { Controller, Get, Headers, Query } from '@nestjs/common';
+import { Controller, Get, Post, Headers, Query, Body } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { CalculationService } from './calculation.service';
 
 @Controller('client_api/orders')
 export class OrdersController {
-    constructor(private readonly ordersService: OrdersService) {}
+    constructor(
+        private readonly ordersService: OrdersService,
+        private readonly calculationService: CalculationService,
+    ) {}
+
+    @Post('calculate')
+    async calculate(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { dry_run?: boolean },
+    ) {
+        return this.calculationService.calculate(body?.dry_run ?? true, headers);
+    }
 
     @Get('get_order_access')
     async getOrderAccess(
