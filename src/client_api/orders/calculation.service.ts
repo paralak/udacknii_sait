@@ -198,6 +198,10 @@ export class CalculationService {
             // Заказы этого адреса — собираем локально, затем делаем сводку
             const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date; pricePerUnit?: number; packMult: number; orderMult: number; stockOur: number; nzVal: number }[] = [];
 
+            // Пул всех позиций поставщика на этом адресе (для добора)
+            type PoolItem = { product_id: number; skuName: string; unit: string; pricePerUnit?: number; packMult: number; orderMult: number; stockOur: number; dailyConsumption: number; nzVal: number; supplier: string; supplierName: string };
+            const supplierPool = new Map<string, PoolItem[]>();
+
             if (itemSettings.length === 0) {
                 logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: 'Нет позиций в товарной матрице' });
                 items_warn++;
@@ -277,6 +281,10 @@ export class CalculationService {
 
                 let stock = stockRow?.value ?? 0;
                 const initialStock = stock;
+
+                // Регистрируем в пуле поставщика для возможного добора
+                if (!supplierPool.has(item.supplier_role)) supplierPool.set(item.supplier_role, []);
+                supplierPool.get(item.supplier_role)!.push({ product_id: item.sku_id, skuName, unit: sku?.packaging_supplier || 'уп', pricePerUnit, packMult, orderMult, stockOur: initialStock, dailyConsumption, nzVal: item.nz, supplier: item.supplier_role, supplierName: supplier.supplier_name });
                 const stockDate = stockRow?.date
                     ? new Date(stockRow.date).toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' })
                     : null;
@@ -395,39 +403,58 @@ export class CalculationService {
                             }
                         }
 
-                        // Добор до минимальной суммы (как в боте: по одному orderMult за итерацию,
-                        // выбираем позицию с наименьшим покрытием НЗ)
+                        // Добор до минимальной суммы:
+                        // берём ВСЕ позиции поставщика на этом адресе (не только те, что уже в заказе),
+                        // выбираем позицию с наименьшим «осталось дней по расходу» = stockOur / dailyConsumption
                         if (missingPrices === 0 && totalSum > 0 && totalSum < minSum) {
-                            const validForTopup = orders.filter(o => o.pricePerUnit !== undefined && o.orderMult > 0);
+                            const pool = (supplierPool.get(supplierRole) ?? [])
+                                .filter(p => p.pricePerUnit !== undefined && p.orderMult > 0);
                             const initialSumBeforeTopup = totalSum;
+                            const delivDate = new Date(dateStr);
 
-                            while (totalSum < minSum && validForTopup.length > 0) {
-                                // Выбираем позицию с наименьшим покрытием: (остаток + заказ_в_наших) / НЗ
-                                const target = validForTopup.reduce((best, o) => {
-                                    const coverage = (o.nzVal > 0)
-                                        ? (o.stockOur + o.count * o.packMult) / o.nzVal
-                                        : 999999;
-                                    const bestCoverage = (best.nzVal > 0)
-                                        ? (best.stockOur + best.count * best.packMult) / best.nzVal
-                                        : 999999;
-                                    return coverage < bestCoverage ? o : best;
+                            // Локальная копия stockOur для симуляции добора
+                            const poolStocks = new Map<number, number>(pool.map(p => [p.product_id, p.stockOur]));
+
+                            while (totalSum < minSum && pool.length > 0) {
+                                // «Дней запаса» = текущий_остаток / суточный_расход
+                                // Для нулевого расхода — используем покрытие НЗ (× 30 для сопоставимости)
+                                const target = pool.reduce((best, p) => {
+                                    const s = poolStocks.get(p.product_id) ?? 0;
+                                    const days = p.dailyConsumption > 0
+                                        ? s / p.dailyConsumption
+                                        : (p.nzVal > 0 ? (s / p.nzVal) * 30 : 999999);
+                                    const bs = poolStocks.get(best.product_id) ?? 0;
+                                    const bestDays = best.dailyConsumption > 0
+                                        ? bs / best.dailyConsumption
+                                        : (best.nzVal > 0 ? (bs / best.nzVal) * 30 : 999999);
+                                    return days < bestDays ? p : best;
                                 });
 
-                                target.count += target.orderMult;
+                                // Добавляем одну кратность заказа
+                                const addedOur = target.orderMult * target.packMult;
+                                poolStocks.set(target.product_id, (poolStocks.get(target.product_id) ?? 0) + addedOur);
                                 const addedCost = target.orderMult * (target.pricePerUnit ?? 0);
                                 totalSum += addedCost;
+
+                                // Обновляем addrOrders (если позиция уже есть — увеличиваем count, иначе добавляем)
+                                const existing = orders.find(o => o.product_id === target.product_id);
+                                if (existing) {
+                                    existing.count += target.orderMult;
+                                } else {
+                                    orders.push({ supplier: target.supplier, supplierName: target.supplierName, product_id: target.product_id, skuName: target.skuName, count: target.orderMult, unit: target.unit, date: delivDate, pricePerUnit: target.pricePerUnit, packMult: target.packMult, orderMult: target.orderMult, stockOur: target.stockOur, nzVal: target.nzVal });
+                                }
 
                                 // Синхронизируем pendingOrders
                                 const pi = pendingOrders.findIndex(p =>
                                     p.address === code &&
                                     p.supplier === target.supplier &&
                                     p.product_id === target.product_id &&
-                                    p.date.toISOString() === target.date.toISOString(),
+                                    p.date.toISOString() === delivDate.toISOString(),
                                 );
                                 if (pi >= 0) {
                                     pendingOrders[pi].count += target.orderMult;
                                 } else {
-                                    pendingOrders.push({ address: code, supplier: target.supplier, product_id: target.product_id, count: target.orderMult, date: target.date });
+                                    pendingOrders.push({ address: code, supplier: target.supplier, product_id: target.product_id, count: target.orderMult, date: delivDate });
                                 }
                             }
 
