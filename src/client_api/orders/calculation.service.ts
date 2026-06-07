@@ -10,6 +10,7 @@ import { OrdersTable } from 'src/db/orders_table.entity';
 import { Token } from 'src/db/token.entity';
 import { Flags } from 'src/db/flags.entity';
 import { Stock2 } from 'src/db/stock2.entity';
+import { ZakupRashodniki } from 'src/db/zakup_rashodniki.entity';
 
 export interface CalcLogEntry {
     level: 'info' | 'warn' | 'error' | 'success';
@@ -62,6 +63,9 @@ export class CalculationService {
 
         @InjectRepository(Stock2)
         private stock2Repo: Repository<Stock2>,
+
+        @InjectRepository(ZakupRashodniki)
+        private zakupRepo: Repository<ZakupRashodniki>,
     ) {}
 
     async checkToken(headers: Record<string, string>): Promise<{ status: string; userId?: number; message?: string }> {
@@ -165,6 +169,17 @@ export class CalculationService {
         let items_ok = 0, items_warn = 0, items_error = 0;
         const today = new Date();
 
+        // Загружаем актуальные цены из закупок (последняя запись на artikul)
+        const priceRows: { artikul: string; price: number }[] = await this.zakupRepo.manager.query(
+            `SELECT z.artikul, z.price FROM zakup_rashodniki_mes z
+             INNER JOIN (SELECT artikul, MAX(timestamp) AS max_ts FROM zakup_rashodniki_mes GROUP BY artikul) m
+             ON z.artikul = m.artikul AND z.timestamp = m.max_ts
+             GROUP BY z.artikul`,
+        );
+        const artikulToPrice = new Map<string, number>(
+            priceRows.map(r => [r.artikul, r.price]),
+        );
+
         const addresses = await this.addressRepo.find({ order: { address_code: 'ASC' } });
 
         logs.push({
@@ -181,7 +196,7 @@ export class CalculationService {
 
             const itemSettings = await this.itemSettingsRepo.find({ where: { address_code: code } });
             // Заказы этого адреса — собираем локально, затем делаем сводку
-            const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date }[] = [];
+            const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date; pricePerUnit?: number }[] = [];
 
             if (itemSettings.length === 0) {
                 logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: 'Нет позиций в товарной матрице' });
@@ -192,6 +207,7 @@ export class CalculationService {
             for (const item of itemSettings) {
                 const sku = await this.skuParamsRepo.findOne({ where: { sku_id: item.sku_id } });
                 const skuName = sku?.name_short || sku?.name || `SKU#${item.sku_id}`;
+                const pricePerUnit = sku?.artikul ? artikulToPrice.get(sku.artikul) : undefined;
 
                 // ── Проверка 1: расход ──────────────────────────
                 const rashod = await this.rashodRepo.findOne({ where: { address: code, item: item.sku_id } });
@@ -338,7 +354,7 @@ export class CalculationService {
 
                 for (const o of skuOrders) {
                     pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: o.qty, date: o.date });
-                    addrOrders.push({ supplier: item.supplier_role, supplierName: supplier.supplier_name, product_id: item.sku_id, skuName, count: o.qty, unit: sku?.packaging_supplier || 'уп', date: o.date });
+                    addrOrders.push({ supplier: item.supplier_role, supplierName: supplier.supplier_name, product_id: item.sku_id, skuName, count: o.qty, unit: sku?.packaging_supplier || 'уп', date: o.date, pricePerUnit });
                 }
                 items_ok++;
             }
@@ -367,9 +383,29 @@ export class CalculationService {
                     const itemLines = orders.map(o => `${o.skuName} ×${o.count} ${o.unit}`).join(', ');
                     const minSum = suppSett?.min_order_sum;
 
+                    let sumSuffix = '';
+                    if (minSum) {
+                        let totalSum = 0;
+                        let missingPrices = 0;
+                        for (const o of orders) {
+                            if (o.pricePerUnit !== undefined) {
+                                totalSum += o.count * o.pricePerUnit;
+                            } else {
+                                missingPrices++;
+                            }
+                        }
+                        if (missingPrices > 0) {
+                            sumSuffix = ` | мин. сумма ${minSum} ₽ (цена не найдена для ${missingPrices} поз. — проверьте вручную)`;
+                        } else if (totalSum < minSum) {
+                            sumSuffix = ` | ⚠️ сумма ~${totalSum.toFixed(0)} ₽ < мин. ${minSum} ₽`;
+                        } else {
+                            sumSuffix = ` | сумма ~${totalSum.toFixed(0)} ₽ ✓`;
+                        }
+                    }
+
                     logs.push({
                         level: 'info', address: code, sku_id: 0, sku_name: '',
-                        message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLines}${minSum ? ` | ⚠️ мин. сумма ${minSum} ₽ (цены не заданы — проверьте вручную)` : ''}`,
+                        message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLines}${sumSuffix}`,
                     });
                 }
             }

@@ -13,6 +13,7 @@ import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { SkuRashod } from 'src/db/sku_rashod.entity';
 import { Flags } from 'src/db/flags.entity';
 import { Stock2 } from 'src/db/stock2.entity';
+import { ZakupRashodniki } from 'src/db/zakup_rashodniki.entity';
 
 @Module({
     imports: [TypeOrmModule.forFeature([
@@ -26,6 +27,7 @@ import { Stock2 } from 'src/db/stock2.entity';
         SkuRashod,
         Flags,
         Stock2,
+        ZakupRashodniki,
     ])],
     controllers: [OrdersController],
     providers: [OrdersService, CalculationService],
