@@ -180,6 +180,8 @@ export class CalculationService {
             });
 
             const itemSettings = await this.itemSettingsRepo.find({ where: { address_code: code } });
+            // Заказы этого адреса — собираем локально, затем делаем сводку
+            const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date }[] = [];
 
             if (itemSettings.length === 0) {
                 logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: 'Нет позиций в товарной матрице' });
@@ -336,8 +338,40 @@ export class CalculationService {
 
                 for (const o of skuOrders) {
                     pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: o.qty, date: o.date });
+                    addrOrders.push({ supplier: item.supplier_role, supplierName: supplier.supplier_name, product_id: item.sku_id, skuName, count: o.qty, unit: sku?.packaging_supplier || 'уп', date: o.date });
                 }
                 items_ok++;
+            }
+
+            // ── Сводка по поставщикам для этого адреса ─────────
+            if (addrOrders.length > 0) {
+                // Группируем по supplier + date
+                const grouped = new Map<string, typeof addrOrders>();
+                for (const o of addrOrders) {
+                    const key = `${o.supplier}__${o.date.toISOString().split('T')[0]}`;
+                    if (!grouped.has(key)) grouped.set(key, []);
+                    grouped.get(key)!.push(o);
+                }
+
+                // Для каждой группы — проверяем min_order_sum и выводим список позиций
+                const supplierSettingsCache = new Map<string, SupplierSettings>();
+                for (const [key, orders] of Array.from(grouped.entries()).sort()) {
+                    const [supplierRole, dateStr] = key.split('__');
+                    let suppSett = supplierSettingsCache.get(supplierRole);
+                    if (!suppSett) {
+                        suppSett = await this.supplierSettingsRepo.findOne({ where: { address_code: code, supplier_role: supplierRole } });
+                        if (suppSett) supplierSettingsCache.set(supplierRole, suppSett);
+                    }
+                    const supplierLabel = suppSett?.supplier_name || supplierRole;
+                    const dateFormatted = new Date(dateStr).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                    const itemLines = orders.map(o => `${o.skuName} ×${o.count} ${o.unit}`).join(', ');
+                    const minSum = suppSett?.min_order_sum;
+
+                    logs.push({
+                        level: 'info', address: code, sku_id: 0, sku_name: '',
+                        message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLines}${minSum ? ` | ⚠️ мин. сумма ${minSum} ₽ (цены не заданы — проверьте вручную)` : ''}`,
+                    });
+                }
             }
         }
 
