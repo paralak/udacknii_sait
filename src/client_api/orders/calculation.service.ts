@@ -34,6 +34,18 @@ export interface CalcResult {
     summary: CalcSummary;
 }
 
+interface ValidItem {
+    sku_id: number;
+    skuName: string;
+    unit: string;
+    pricePerUnit?: number;
+    packMult: number;
+    orderMult: number;
+    dailyConsumption: number;
+    nzVal: number;
+    initialStock: number;
+}
+
 @Injectable()
 export class CalculationService {
     constructor(
@@ -85,9 +97,8 @@ export class CalculationService {
     // delivery_days хранится как 0=Пн...6=Вс
     // JS Date.getDay() возвращает 0=Вс...6=Сб
     // Конвертация: systemDay = (jsDay + 6) % 7
-    private static readonly CALC_HORIZON_DAYS = 42; // месяц + 2 недели
+    private static readonly CALC_HORIZON_DAYS = 42;
 
-    // Ближайшая дата доставки начиная с afterDate (не включительно), с учётом lead_time
     private getNextDeliveryAfter(deliveryDaysStr: string, leadTimeDays: number, afterDate: Date): Date | null {
         const deliveryDays = deliveryDaysStr
             .split(',')
@@ -111,419 +122,277 @@ export class CalculationService {
         return null;
     }
 
-    private getDeliveryDatesInPeriod(deliveryDaysStr: string, leadTimeDays: number, fromDate: Date): Date[] {
-        const deliveryDays = deliveryDaysStr
-            .split(',')
-            .map(s => parseInt(s.trim()))
-            .filter(n => !isNaN(n) && n >= 0 && n <= 6);
-
-        if (deliveryDays.length === 0) return [];
-
-        const today = new Date(fromDate);
-        today.setHours(0, 0, 0, 0);
-
-        const horizon = new Date(today);
-        horizon.setDate(today.getDate() + CalculationService.CALC_HORIZON_DAYS);
-
-        const result: Date[] = [];
-
-        for (let i = 1; i <= CalculationService.CALC_HORIZON_DAYS + 7; i++) {
-            const d = new Date(today);
-            d.setDate(today.getDate() + i);
-            if (d > horizon) break;
-
-            const systemDay = (d.getDay() + 6) % 7;
-            if (deliveryDays.includes(systemDay)) {
-                const orderDeadline = new Date(d);
-                orderDeadline.setDate(d.getDate() - leadTimeDays);
-                if (orderDeadline >= today) {
-                    result.push(new Date(d));
-                }
-            }
-        }
-        return result;
-    }
-
     async calculate(dryRun: boolean, headers: Record<string, string>): Promise<CalcResult> {
-        // Авторизация
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') {
-            return {
-                logs: [{ level: 'error', address: '', sku_id: 0, sku_name: '', message: check.message }],
-                ordersCreated: 0,
-                orderId: null,
-                summary: { addresses: 0, items_ok: 0, items_warn: 0, items_error: 1 },
-            };
+            return { logs: [{ level: 'error', address: '', sku_id: 0, sku_name: '', message: check.message }], ordersCreated: 0, orderId: null, summary: { addresses: 0, items_ok: 0, items_warn: 0, items_error: 1 } };
         }
         if (!(await this.isAdmin(check.userId))) {
-            return {
-                logs: [{ level: 'error', address: '', sku_id: 0, sku_name: '', message: 'Доступ только для ADMIN' }],
-                ordersCreated: 0,
-                orderId: null,
-                summary: { addresses: 0, items_ok: 0, items_warn: 0, items_error: 1 },
-            };
+            return { logs: [{ level: 'error', address: '', sku_id: 0, sku_name: '', message: 'Доступ только для ADMIN' }], ordersCreated: 0, orderId: null, summary: { addresses: 0, items_ok: 0, items_warn: 0, items_error: 1 } };
         }
 
         const logs: CalcLogEntry[] = [];
         const pendingOrders: { address: string; supplier: string; product_id: number; count: number; date: Date }[] = [];
         let items_ok = 0, items_warn = 0, items_error = 0;
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        // Загружаем актуальные цены из закупок (последняя запись на artikul)
         const priceRows: { artikul: string; price: number }[] = await this.zakupRepo.manager.query(
             `SELECT z.artikul, z.price FROM zakup_rashodniki_mes z
              INNER JOIN (SELECT artikul, MAX(timestamp) AS max_ts FROM zakup_rashodniki_mes GROUP BY artikul) m
              ON z.artikul = m.artikul AND z.timestamp = m.max_ts
              GROUP BY z.artikul, z.price`,
         );
-        const artikulToPrice = new Map<string, number>(
-            priceRows.map(r => [r.artikul, r.price]),
-        );
+        const artikulToPrice = new Map<string, number>(priceRows.map(r => [r.artikul, r.price]));
 
         const addresses = await this.addressRepo.find({ order: { address_code: 'ASC' } });
 
-        logs.push({
-            level: 'info', address: '', sku_id: 0, sku_name: '',
-            message: `Запуск расчёта ${dryRun ? '(пробный, без сохранения)' : '(с сохранением в БД)'} — ${today.toLocaleString('ru')}`,
-        });
+        logs.push({ level: 'info', address: '', sku_id: 0, sku_name: '', message: `Запуск расчёта ${dryRun ? '(пробный, без сохранения)' : '(с сохранением в БД)'} — ${new Date().toLocaleString('ru')}` });
 
         for (const addr of addresses) {
             const code = addr.address_code;
-            logs.push({
-                level: 'info', address: code, sku_id: 0, sku_name: '',
-                message: `━━━ Адрес ${code}: ${addr.name} ━━━`,
-            });
+            logs.push({ level: 'info', address: code, sku_id: 0, sku_name: '', message: `━━━ Адрес ${code}: ${addr.name} ━━━` });
 
             const itemSettings = await this.itemSettingsRepo.find({ where: { address_code: code } });
-            // Заказы этого адреса — собираем локально, затем делаем сводку
-            const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date; pricePerUnit?: number; packMult: number; orderMult: number; stockOur: number; nzVal: number }[] = [];
-
-            // Пул всех позиций поставщика на этом адресе (для добора)
-            type PoolItem = { product_id: number; skuName: string; unit: string; pricePerUnit?: number; packMult: number; orderMult: number; stockOur: number; dailyConsumption: number; nzVal: number; supplier: string; supplierName: string };
-            const supplierPool = new Map<string, PoolItem[]>();
-
             if (itemSettings.length === 0) {
                 logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: 'Нет позиций в товарной матрице' });
                 items_warn++;
                 continue;
             }
 
+            // ── VALIDATION PHASE: группируем валидные позиции по поставщику ──
+            const validItemsBySupplier = new Map<string, ValidItem[]>();
+            const supplierSettingsMap = new Map<string, SupplierSettings>();
+
             for (const item of itemSettings) {
                 const sku = await this.skuParamsRepo.findOne({ where: { sku_id: item.sku_id } });
                 const skuName = sku?.name_short || sku?.name || `SKU#${item.sku_id}`;
                 const pricePerUnit = sku?.artikul ? artikulToPrice.get(sku.artikul) : undefined;
 
-                // ── Проверка 1: расход ──────────────────────────
                 const rashod = await this.rashodRepo.findOne({ where: { address: code, item: item.sku_id } });
-                const rashodValue = rashod?.value ?? 0;
                 if (!rashod) {
                     logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: 'Нет данных о суточном расходе — принято 0' });
                     items_warn++;
                 }
 
-                // ── Проверка 2: НЗ ─────────────────────────────
                 if (item.nz === null || item.nz === undefined) {
                     logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: 'НЗ (минимальный запас) не задан' });
-                    items_error++;
-                    continue;
+                    items_error++; continue;
                 }
-
-                // ── Проверка 3: поставщик ──────────────────────
                 if (!item.supplier_role) {
                     logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: 'Поставщик не назначен' });
-                    items_error++;
-                    continue;
+                    items_error++; continue;
                 }
 
-                // ── Проверка 4: настройки поставщика ──────────
-                const supplier = await this.supplierSettingsRepo.findOne({
-                    where: { address_code: code, supplier_role: item.supplier_role },
-                });
+                const supplier = await this.supplierSettingsRepo.findOne({ where: { address_code: code, supplier_role: item.supplier_role } });
                 if (!supplier) {
                     logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Нет настроек поставщика «${item.supplier_role}» для этого адреса` });
-                    items_error++;
-                    continue;
+                    items_error++; continue;
                 }
-
-                // ── Проверка 5: дни доставки ───────────────────
                 if (!supplier.delivery_days || supplier.delivery_days.trim() === '') {
                     logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Поставщик «${supplier.supplier_name}»: не заданы дни доставки` });
-                    items_error++;
-                    continue;
+                    items_error++; continue;
                 }
-
-                // ── Проверка 6: срок поставки ──────────────────
-                const leadTime = supplier.lead_time_days ?? 0;
                 if (supplier.lead_time_days === null || supplier.lead_time_days === undefined) {
                     logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Поставщик «${supplier.supplier_name}»: срок поставки не задан — принято 0 дней` });
                     items_warn++;
                 }
 
-                // ── Проверка 7: коэффициент упаковки ──────────
                 const packMult = item.packaging_multiple ?? sku?.packaging_multiple;
                 if (!packMult || packMult <= 0) {
                     logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Не задан коэффициент упаковки (packaging_multiple)` });
-                    items_error++;
-                    continue;
+                    items_error++; continue;
                 }
 
-                // ── Симуляция по дням ──────────────────────────
-                const dailyConsumption = rashodValue * (item.consumption_factor ?? 1);
-                const orderMult = item.order_multiple ?? sku?.order_multiple ?? 1;
-
-                // Текущий остаток из последней инвентаризации
                 const stockRow = addr.hid
-                    ? await this.stock2Repo.findOne({
-                        where: { address: addr.hid, sku_id: String(item.sku_id) },
-                        order: { date: 'DESC' },
-                    })
+                    ? await this.stock2Repo.findOne({ where: { address: addr.hid, sku_id: String(item.sku_id) }, order: { date: 'DESC' } })
                     : null;
-
-                let stock = stockRow?.value ?? 0;
-                const initialStock = stock;
-
-                // Регистрируем в пуле поставщика для возможного добора
-                if (!supplierPool.has(item.supplier_role)) supplierPool.set(item.supplier_role, []);
-                supplierPool.get(item.supplier_role)!.push({ product_id: item.sku_id, skuName, unit: sku?.packaging_supplier || 'уп', pricePerUnit, packMult, orderMult, stockOur: initialStock, dailyConsumption, nzVal: item.nz, supplier: item.supplier_role, supplierName: supplier.supplier_name });
-                const stockDate = stockRow?.date
-                    ? new Date(stockRow.date).toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                    : null;
-
                 if (!stockRow) {
                     logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Нет данных об остатке — принято 0` });
                     items_warn++;
                 }
 
-                // Симуляция: pendingDeliveries[dateStr] = qty в наших единицах
-                const pendingDeliveries = new Map<string, number>();
-                const orderedDates = new Set<string>();
-                const skuOrders: { date: Date; qty: number }[] = [];
+                supplierSettingsMap.set(item.supplier_role, supplier);
+                if (!validItemsBySupplier.has(item.supplier_role)) validItemsBySupplier.set(item.supplier_role, []);
+                validItemsBySupplier.get(item.supplier_role)!.push({
+                    sku_id: item.sku_id, skuName, unit: sku?.packaging_supplier || 'уп',
+                    pricePerUnit, packMult,
+                    orderMult: item.order_multiple ?? sku?.order_multiple ?? 1,
+                    dailyConsumption: (rashod?.value ?? 0) * (item.consumption_factor ?? 1),
+                    nzVal: item.nz,
+                    initialStock: stockRow?.value ?? 0,
+                });
+                items_ok++;
+            }
 
+            // ── PER-SUPPLIER SIMULATION ────────────────────────────────────────
+            for (const [supplierRole, items] of validItemsBySupplier) {
+                const suppSett = supplierSettingsMap.get(supplierRole)!;
+                const leadTime = suppSett.lead_time_days ?? 0;
+                const minSum = suppSett.min_order_sum;
+                const supplierLabel = suppSett.supplier_name || supplierRole;
+
+                // Текущие остатки (изменяются в симуляции)
+                const stocks = new Map<number, number>(items.map(i => [i.sku_id, i.initialStock]));
+
+                // Ожидаемые поставки: дата → sku_id → кол-во в наших единицах
+                const simPending = new Map<string, Map<number, number>>();
+
+                // Накопленные базовые заказы до финализации: дата → sku_id → кол-во в упаковках поставщика
+                const accumulated = new Map<string, Map<number, number>>();
+
+                // Уже заказанные даты доставки для каждого SKU
+                const orderedDates = new Map<number, Set<string>>(items.map(i => [i.sku_id, new Set()]));
+
+                const finalizedDates = new Set<string>();
+
+                // Финализация заказа на дату delivDateStr:
+                // 1. Применяем добор до min_order_sum
+                // 2. Добавляем в simPending (симуляция получит правильный сток)
+                // 3. Логируем 📦 сводку
+                // 4. Добавляем в pendingOrders
+                const finalizeDelivery = (delivDateStr: string, orderMap: Map<number, number>) => {
+                    const delivDate = new Date(delivDateStr);
+
+                    let totalSum = 0, missingPrices = 0;
+                    for (const [skuId, qty] of orderMap) {
+                        const it = items.find(i => i.sku_id === skuId)!;
+                        if (it.pricePerUnit !== undefined) totalSum += qty * it.pricePerUnit;
+                        else missingPrices++;
+                    }
+
+                    if (missingPrices === 0 && minSum && totalSum > 0 && totalSum < minSum) {
+                        const pool = items.filter(i => i.pricePerUnit !== undefined && i.orderMult > 0);
+                        // Для добора используем стоки симуляции на момент финализации
+                        const topupStocks = new Map<number, number>(items.map(i => [i.sku_id, stocks.get(i.sku_id) ?? 0]));
+                        const initialSumBeforeTopup = totalSum;
+
+                        while (totalSum < minSum && pool.length > 0) {
+                            const target = pool.reduce((best, p) => {
+                                const s = topupStocks.get(p.sku_id) ?? 0;
+                                const days = p.dailyConsumption > 0 ? s / p.dailyConsumption : (p.nzVal > 0 ? (s / p.nzVal) * 30 : 999999);
+                                const bs = topupStocks.get(best.sku_id) ?? 0;
+                                const bestDays = best.dailyConsumption > 0 ? bs / best.dailyConsumption : (best.nzVal > 0 ? (bs / best.nzVal) * 30 : 999999);
+                                return days < bestDays ? p : best;
+                            });
+                            topupStocks.set(target.sku_id, (topupStocks.get(target.sku_id) ?? 0) + target.orderMult * target.packMult);
+                            orderMap.set(target.sku_id, (orderMap.get(target.sku_id) ?? 0) + target.orderMult);
+                            totalSum += target.orderMult * (target.pricePerUnit ?? 0);
+                        }
+
+                        logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: `⚠️ Сумма ${initialSumBeforeTopup.toFixed(0)} ₽ < мин. ${minSum} ₽ — выполнен добор до ~${totalSum.toFixed(0)} ₽` });
+                    }
+
+                    // Добавляем в симуляцию (с учётом добора) — следующие дни увидят правильный сток
+                    if (!simPending.has(delivDateStr)) simPending.set(delivDateStr, new Map());
+                    for (const [skuId, qty] of orderMap) {
+                        const it = items.find(i => i.sku_id === skuId)!;
+                        const ourUnits = qty * it.packMult;
+                        simPending.get(delivDateStr)!.set(skuId, (simPending.get(delivDateStr)!.get(skuId) ?? 0) + ourUnits);
+                        pendingOrders.push({ address: code, supplier: supplierRole, product_id: skuId, count: qty, date: delivDate });
+                    }
+
+                    // Лог 📦
+                    const dateFormatted = delivDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                    let sumSuffix = '';
+                    if (missingPrices > 0) {
+                        sumSuffix = ` | мин. сумма ${minSum ?? '?'} ₽ (цена не найдена для ${missingPrices} поз. — проверьте вручную)`;
+                    } else if (minSum) {
+                        let finalSum = 0;
+                        for (const [skuId, qty] of orderMap) {
+                            const it = items.find(i => i.sku_id === skuId)!;
+                            if (it.pricePerUnit !== undefined) finalSum += qty * it.pricePerUnit;
+                        }
+                        sumSuffix = finalSum < minSum
+                            ? ` | ⚠️ сумма ~${finalSum.toFixed(0)} ₽ < мин. ${minSum} ₽ (нет позиций для добора)`
+                            : ` | сумма ~${finalSum.toFixed(0)} ₽ ✓`;
+                    }
+                    const itemLines = Array.from(orderMap.entries())
+                        .map(([skuId, qty]) => { const it = items.find(i => i.sku_id === skuId)!; return `${it.skuName} ×${qty} ${it.unit}`; })
+                        .join(', ');
+                    logs.push({ level: 'info', address: code, sku_id: 0, sku_name: '', message: `📦 ${supplierLabel} | ${dateFormatted} | ${orderMap.size} поз: ${itemLines}${sumSuffix}` });
+                };
+
+                // ── День-за-днём ──────────────────────────────────────────────
                 for (let day = 0; day <= CalculationService.CALC_HORIZON_DAYS; day++) {
                     const simDate = new Date(today);
                     simDate.setDate(today.getDate() + day);
                     const simDateStr = simDate.toISOString().split('T')[0];
 
-                    // 1. Получаем заказы, прибывающие сегодня
-                    if (pendingDeliveries.has(simDateStr)) {
-                        stock += pendingDeliveries.get(simDateStr)!;
-                        pendingDeliveries.delete(simDateStr);
+                    // 1. Финализируем заказы, чей дедлайн наступил
+                    for (const [delivDateStr, orderMap] of accumulated) {
+                        if (finalizedDates.has(delivDateStr)) continue;
+                        const deadline = new Date(delivDateStr);
+                        deadline.setDate(deadline.getDate() - leadTime);
+                        deadline.setHours(0, 0, 0, 0);
+                        if (simDateStr >= deadline.toISOString().split('T')[0]) {
+                            finalizedDates.add(delivDateStr);
+                            finalizeDelivery(delivDateStr, orderMap);
+                        }
                     }
 
-                    // 2. Суточный расход
-                    stock = Math.max(0, stock - dailyConsumption);
+                    // 2. Получаем поставки этого дня (включая только что финализированные)
+                    const incoming = simPending.get(simDateStr);
+                    if (incoming) {
+                        for (const [skuId, qty] of incoming) {
+                            stocks.set(skuId, (stocks.get(skuId) ?? 0) + qty);
+                        }
+                    }
 
-                    // 3. Нужен ли заказ?
-                    if (stock < item.nz) {
-                        const delivDate = this.getNextDeliveryAfter(supplier.delivery_days, leadTime, simDate);
-                        if (delivDate) {
+                    // 3. Суточный расход
+                    for (const item of items) {
+                        stocks.set(item.sku_id, Math.max(0, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption));
+                    }
+
+                    // 4. Проверяем, нужен ли заказ
+                    for (const item of items) {
+                        const s = stocks.get(item.sku_id) ?? 0;
+                        if (s < item.nzVal) {
+                            const delivDate = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, simDate);
+                            if (!delivDate) continue;
                             const delivDateStr = delivDate.toISOString().split('T')[0];
-                            if (!orderedDates.has(delivDateStr)) {
-                                orderedDates.add(delivDateStr);
+                            if (orderedDates.get(item.sku_id)!.has(delivDateStr)) continue;
+                            orderedDates.get(item.sku_id)!.add(delivDateStr);
 
-                                // Следующая поставка после этой — для расчёта периода покрытия
-                                const nextDeliv = this.getNextDeliveryAfter(supplier.delivery_days, leadTime, delivDate);
-                                const coverDays = nextDeliv
-                                    ? Math.round((nextDeliv.getTime() - delivDate.getTime()) / 86400000)
-                                    : 7;
+                            const daysToDeliv = Math.round((delivDate.getTime() - simDate.getTime()) / 86400000);
+                            const stockAtDeliv = Math.max(0, s - item.dailyConsumption * daysToDeliv);
+                            const nextDeliv = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, delivDate);
+                            const coverDays = nextDeliv ? Math.round((nextDeliv.getTime() - delivDate.getTime()) / 86400000) : 7;
+                            const targetStock = item.nzVal + item.dailyConsumption * coverDays;
+                            const orderQtyOur = Math.max(0, targetStock - stockAtDeliv);
+                            const orderQtySupplier = Math.ceil(orderQtyOur / item.packMult / item.orderMult) * item.orderMult;
 
-                                // Сколько будет в наличии на момент доставки
-                                const daysToDeliv = Math.round((delivDate.getTime() - simDate.getTime()) / 86400000);
-                                const stockAtDeliv = Math.max(0, stock - dailyConsumption * daysToDeliv);
-
-                                // Заказываем: чтобы при доставке хватило до следующей поставки + НЗ
-                                const targetStock = item.nz + dailyConsumption * coverDays;
-                                const orderQtyOur = Math.max(0, targetStock - stockAtDeliv);
-                                const orderQtySupplier = Math.ceil(orderQtyOur / packMult / orderMult) * orderMult;
-                                const orderQtyOurRounded = orderQtySupplier * packMult;
-
-                                // Добавляем доставку в симуляцию
-                                pendingDeliveries.set(delivDateStr,
-                                    (pendingDeliveries.get(delivDateStr) ?? 0) + orderQtyOurRounded);
-
-                                skuOrders.push({ date: delivDate, qty: orderQtySupplier });
+                            if (orderQtySupplier > 0) {
+                                if (!accumulated.has(delivDateStr)) accumulated.set(delivDateStr, new Map());
+                                accumulated.get(delivDateStr)!.set(item.sku_id, (accumulated.get(delivDateStr)!.get(item.sku_id) ?? 0) + orderQtySupplier);
 
                                 const ds = delivDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-                                logs.push({
-                                    level: 'success', address: code, sku_id: item.sku_id, sku_name: skuName,
-                                    message: `${ds}: ${orderQtySupplier} ${sku?.packaging_supplier || 'уп'} (остаток при доставке ~${stockAtDeliv.toFixed(1)}, покрытие ${coverDays}д, НЗ ${item.nz})`,
-                                });
+                                logs.push({ level: 'success', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `${ds}: ${orderQtySupplier} ${item.unit} (остаток при доставке ~${stockAtDeliv.toFixed(1)}, покрытие ${coverDays}д, НЗ ${item.nzVal})` });
                             }
                         }
                     }
                 }
 
-                if (skuOrders.length === 0 && stock >= item.nz) {
-                    const stockStr = stock.toFixed(1);
-                    logs.push({
-                        level: 'info', address: code, sku_id: item.sku_id, sku_name: skuName,
-                        message: `Заказ не нужен — остаток ${stockStr} >= НЗ ${item.nz} на весь период${stockDate ? ` (остаток от ${stockDate})` : ''}`,
-                    });
-                }
-
-                for (const o of skuOrders) {
-                    pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: o.qty, date: o.date });
-                    addrOrders.push({ supplier: item.supplier_role, supplierName: supplier.supplier_name, product_id: item.sku_id, skuName, count: o.qty, unit: sku?.packaging_supplier || 'уп', date: o.date, pricePerUnit, packMult: packMult, orderMult: orderMult, stockOur: initialStock, nzVal: item.nz });
-                }
-                items_ok++;
-            }
-
-            // ── Сводка по поставщикам для этого адреса ─────────
-            if (addrOrders.length > 0) {
-                // Группируем по supplier + date
-                const grouped = new Map<string, typeof addrOrders>();
-                for (const o of addrOrders) {
-                    const key = `${o.supplier}__${o.date.toISOString().split('T')[0]}`;
-                    if (!grouped.has(key)) grouped.set(key, []);
-                    grouped.get(key)!.push(o);
-                }
-
-                // Текущие стоки для добора — общие на весь цикл по группам,
-                // чтобы добор предыдущей поставки учитывался в следующей
-                const supplierPoolStocks = new Map<string, Map<number, number>>();
-                for (const [role, items] of supplierPool) {
-                    const m = new Map<number, number>();
-                    for (const p of items) m.set(p.product_id, p.stockOur);
-                    supplierPoolStocks.set(role, m);
-                }
-
-                const sortedGroupEntries = Array.from(grouped.entries()).sort() as [string, typeof addrOrders][];
-
-                // Для каждой группы — проверяем min_order_sum и выводим список позиций
-                const supplierSettingsCache = new Map<string, SupplierSettings>();
-                for (let gi = 0; gi < sortedGroupEntries.length; gi++) {
-                    const [key, orders] = sortedGroupEntries[gi];
-                    const [supplierRole, dateStr] = key.split('__');
-                    let suppSett = supplierSettingsCache.get(supplierRole);
-                    if (!suppSett) {
-                        suppSett = await this.supplierSettingsRepo.findOne({ where: { address_code: code, supplier_role: supplierRole } });
-                        if (suppSett) supplierSettingsCache.set(supplierRole, suppSett);
+                // Финализируем оставшиеся (дедлайн не наступил в пределах горизонта)
+                for (const [delivDateStr, orderMap] of accumulated) {
+                    if (!finalizedDates.has(delivDateStr)) {
+                        finalizedDates.add(delivDateStr);
+                        finalizeDelivery(delivDateStr, orderMap);
                     }
-                    const supplierLabel = suppSett?.supplier_name || supplierRole;
-                    const dateFormatted = new Date(dateStr).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-                    const minSum = suppSett?.min_order_sum;
+                }
 
-                    let sumSuffix = '';
-                    if (minSum) {
-                        let totalSum = 0;
-                        let missingPrices = 0;
-                        for (const o of orders) {
-                            if (o.pricePerUnit !== undefined) {
-                                totalSum += o.count * o.pricePerUnit;
-                            } else {
-                                missingPrices++;
-                            }
-                        }
-
-                        // Добор до минимальной суммы:
-                        // берём ВСЕ позиции поставщика на этом адресе (не только те, что уже в заказе),
-                        // выбираем позицию с наименьшим «осталось дней по расходу» = stock / dailyConsumption.
-                        // supplierPoolStocks несут стоки между поставками — добор предыдущей даты учитывается здесь.
-                        if (missingPrices === 0 && totalSum > 0 && totalSum < minSum) {
-                            const pool = (supplierPool.get(supplierRole) ?? [])
-                                .filter(p => p.pricePerUnit !== undefined && p.orderMult > 0);
-                            const initialSumBeforeTopup = totalSum;
-                            const delivDate = new Date(dateStr);
-
-                            const poolStocks = supplierPoolStocks.get(supplierRole) ?? new Map<number, number>();
-
-                            while (totalSum < minSum && pool.length > 0) {
-                                // «Дней запаса» = текущий_остаток / суточный_расход
-                                // Для нулевого расхода — используем покрытие НЗ (× 30 для сопоставимости)
-                                const target = pool.reduce((best, p) => {
-                                    const s = poolStocks.get(p.product_id) ?? 0;
-                                    const days = p.dailyConsumption > 0
-                                        ? s / p.dailyConsumption
-                                        : (p.nzVal > 0 ? (s / p.nzVal) * 30 : 999999);
-                                    const bs = poolStocks.get(best.product_id) ?? 0;
-                                    const bestDays = best.dailyConsumption > 0
-                                        ? bs / best.dailyConsumption
-                                        : (best.nzVal > 0 ? (bs / best.nzVal) * 30 : 999999);
-                                    return days < bestDays ? p : best;
-                                });
-
-                                // Добавляем одну кратность заказа
-                                const addedOur = target.orderMult * target.packMult;
-                                poolStocks.set(target.product_id, (poolStocks.get(target.product_id) ?? 0) + addedOur);
-                                const addedCost = target.orderMult * (target.pricePerUnit ?? 0);
-                                totalSum += addedCost;
-
-                                // Обновляем addrOrders (если позиция уже есть — увеличиваем count, иначе добавляем)
-                                const existing = orders.find(o => o.product_id === target.product_id);
-                                if (existing) {
-                                    existing.count += target.orderMult;
-                                } else {
-                                    orders.push({ supplier: target.supplier, supplierName: target.supplierName, product_id: target.product_id, skuName: target.skuName, count: target.orderMult, unit: target.unit, date: delivDate, pricePerUnit: target.pricePerUnit, packMult: target.packMult, orderMult: target.orderMult, stockOur: target.stockOur, nzVal: target.nzVal });
-                                }
-
-                                // Синхронизируем pendingOrders
-                                const pi = pendingOrders.findIndex(p =>
-                                    p.address === code &&
-                                    p.supplier === target.supplier &&
-                                    p.product_id === target.product_id &&
-                                    p.date.toISOString() === delivDate.toISOString(),
-                                );
-                                if (pi >= 0) {
-                                    pendingOrders[pi].count += target.orderMult;
-                                } else {
-                                    pendingOrders.push({ address: code, supplier: target.supplier, product_id: target.product_id, count: target.orderMult, date: delivDate });
-                                }
-                            }
-
-                            logs.push({
-                                level: 'warn', address: code, sku_id: 0, sku_name: '',
-                                message: `⚠️ Сумма ${initialSumBeforeTopup.toFixed(0)} ₽ < мин. ${minSum} ₽ — выполнен добор до ~${totalSum.toFixed(0)} ₽`,
-                            });
-                        }
-
-                        if (missingPrices > 0) {
-                            sumSuffix = ` | мин. сумма ${minSum} ₽ (цена не найдена для ${missingPrices} поз. — проверьте вручную)`;
-                        } else if (totalSum < minSum) {
-                            sumSuffix = ` | ⚠️ сумма ~${totalSum.toFixed(0)} ₽ < мин. ${minSum} ₽ (нет позиций для добора)`;
-                        } else {
-                            sumSuffix = ` | сумма ~${totalSum.toFixed(0)} ₽ ✓`;
-                        }
-                    }
-
-                    const itemLinesAfterTopup = orders.map(o => `${o.skuName} ×${o.count} ${o.unit}`).join(', ');
-                    logs.push({
-                        level: 'info', address: code, sku_id: 0, sku_name: '',
-                        message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLinesAfterTopup}${sumSuffix}`,
-                    });
-
-                    // ── Обновляем стоки для следующей поставки этого поставщика ──
-                    const stocks = supplierPoolStocks.get(supplierRole);
-                    if (stocks) {
-                        // Прибавляем всё заказанное в этой группе (включая добор)
-                        for (const o of orders) {
-                            const pItem = supplierPool.get(supplierRole)?.find(p => p.product_id === o.product_id);
-                            if (pItem) {
-                                const addedOur = o.count * pItem.packMult;
-                                stocks.set(o.product_id, (stocks.get(o.product_id) ?? 0) + addedOur);
-                            }
-                        }
-                        // Вычитаем расход до следующей поставки этого же поставщика
-                        const nextEntry = sortedGroupEntries.slice(gi + 1).find(([k]) => k.startsWith(supplierRole + '__'));
-                        if (nextEntry) {
-                            const nextDateStr = nextEntry[0].split('__')[1];
-                            const daysToNext = Math.round((new Date(nextDateStr).getTime() - new Date(dateStr).getTime()) / 86400000);
-                            for (const [productId, stock] of stocks) {
-                                const pItem = supplierPool.get(supplierRole)?.find(p => p.product_id === productId);
-                                if (pItem) {
-                                    stocks.set(productId, Math.max(0, stock - pItem.dailyConsumption * daysToNext));
-                                }
-                            }
-                        }
+                // Позиции без заказов
+                for (const item of items) {
+                    const hadOrders = Array.from(accumulated.values()).some(m => m.has(item.sku_id));
+                    if (!hadOrders) {
+                        logs.push({ level: 'info', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `Заказ не нужен — остаток ${item.initialStock.toFixed(1)} >= НЗ ${item.nzVal} на весь период` });
                     }
                 }
             }
         }
 
         // ── Итог ───────────────────────────────────────────────
-        logs.push({
-            level: 'info', address: '', sku_id: 0, sku_name: '',
-            message: `━━━ Итог: ✅ ${items_ok} OK  ⚠️ ${items_warn} предупреждений  ❌ ${items_error} ошибок ━━━`,
-        });
+        logs.push({ level: 'info', address: '', sku_id: 0, sku_name: '', message: `━━━ Итог: ✅ ${items_ok} OK  ⚠️ ${items_warn} предупреждений  ❌ ${items_error} ошибок ━━━` });
 
         let orderId: string | null = null;
         let ordersCreated = 0;
@@ -538,17 +407,9 @@ export class CalculationService {
                 ordersCreated++;
             }
 
-            logs.push({
-                level: 'success', address: '', sku_id: 0, sku_name: '',
-                message: `✅ Сохранено ${ordersCreated} позиций. ID заказа: ${orderId}`,
-            });
+            logs.push({ level: 'success', address: '', sku_id: 0, sku_name: '', message: `✅ Сохранено ${ordersCreated} позиций. ID заказа: ${orderId}` });
         }
 
-        return {
-            logs,
-            ordersCreated,
-            orderId,
-            summary: { addresses: addresses.length, items_ok, items_warn, items_error },
-        };
+        return { logs, ordersCreated, orderId, summary: { addresses: addresses.length, items_ok, items_warn, items_error } };
     }
 }
