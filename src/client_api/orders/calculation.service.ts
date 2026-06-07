@@ -174,7 +174,7 @@ export class CalculationService {
             `SELECT z.artikul, z.price FROM zakup_rashodniki_mes z
              INNER JOIN (SELECT artikul, MAX(timestamp) AS max_ts FROM zakup_rashodniki_mes GROUP BY artikul) m
              ON z.artikul = m.artikul AND z.timestamp = m.max_ts
-             GROUP BY z.artikul`,
+             GROUP BY z.artikul, z.price`,
         );
         const artikulToPrice = new Map<string, number>(
             priceRows.map(r => [r.artikul, r.price]),
