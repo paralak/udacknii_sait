@@ -9,6 +9,7 @@ import { Sku_parameters } from 'src/db/sku_parameters.entity';
 import { OrdersTable } from 'src/db/orders_table.entity';
 import { Token } from 'src/db/token.entity';
 import { Flags } from 'src/db/flags.entity';
+import { Stock2 } from 'src/db/stock2.entity';
 
 export interface CalcLogEntry {
     level: 'info' | 'warn' | 'error' | 'success';
@@ -58,6 +59,9 @@ export class CalculationService {
 
         @InjectRepository(Flags)
         private flagsRepo: Repository<Flags>,
+
+        @InjectRepository(Stock2)
+        private stock2Repo: Repository<Stock2>,
     ) {}
 
     async checkToken(headers: Record<string, string>): Promise<{ status: string; userId?: number; message?: string }> {
@@ -78,6 +82,30 @@ export class CalculationService {
     // JS Date.getDay() возвращает 0=Вс...6=Сб
     // Конвертация: systemDay = (jsDay + 6) % 7
     private static readonly CALC_HORIZON_DAYS = 42; // месяц + 2 недели
+
+    // Ближайшая дата доставки начиная с afterDate (не включительно), с учётом lead_time
+    private getNextDeliveryAfter(deliveryDaysStr: string, leadTimeDays: number, afterDate: Date): Date | null {
+        const deliveryDays = deliveryDaysStr
+            .split(',')
+            .map(s => parseInt(s.trim()))
+            .filter(n => !isNaN(n) && n >= 0 && n <= 6);
+        if (deliveryDays.length === 0) return null;
+
+        const from = new Date(afterDate);
+        from.setHours(0, 0, 0, 0);
+
+        for (let i = 1; i <= 60; i++) {
+            const d = new Date(from);
+            d.setDate(from.getDate() + i);
+            const systemDay = (d.getDay() + 6) % 7;
+            if (deliveryDays.includes(systemDay)) {
+                const deadline = new Date(d);
+                deadline.setDate(d.getDate() - leadTimeDays);
+                if (deadline >= from) return d;
+            }
+        }
+        return null;
+    }
 
     private getDeliveryDatesInPeriod(deliveryDaysStr: string, leadTimeDays: number, fromDate: Date): Date[] {
         const deliveryDays = deliveryDaysStr
@@ -217,53 +245,97 @@ export class CalculationService {
                     continue;
                 }
 
-                // ── Расчёт на период ───────────────────────────
-                const deliveryDates = this.getDeliveryDatesInPeriod(supplier.delivery_days, leadTime, today);
-                if (deliveryDates.length === 0) {
-                    logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Нет дат доставки в расчётном периоде (${CalculationService.CALC_HORIZON_DAYS} дней)` });
-                    items_error++;
-                    continue;
-                }
-
+                // ── Симуляция по дням ──────────────────────────
                 const dailyConsumption = rashodValue * (item.consumption_factor ?? 1);
                 const orderMult = item.order_multiple ?? sku?.order_multiple ?? 1;
 
-                if (dailyConsumption === 0) {
-                    // Расход = 0: один заказ на первую поставку для пополнения до НЗ
-                    const deliveryDate = deliveryDates[0];
-                    const nzSupplierUnits = item.nz / packMult;
-                    const finalQty = Math.max(1, Math.ceil(nzSupplierUnits / orderMult) * orderMult);
-                    const dateStr = deliveryDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                // Текущий остаток из последней инвентаризации
+                const stockRow = addr.hid
+                    ? await this.stock2Repo.findOne({
+                        where: { address: addr.hid, sku_id: String(item.sku_id) },
+                        order: { date: 'DESC' },
+                    })
+                    : null;
 
-                    pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: finalQty, date: deliveryDate });
-                    logs.push({
-                        level: 'success', address: code, sku_id: item.sku_id, sku_name: skuName,
-                        message: `${dateStr}: ${finalQty} ${sku?.packaging_supplier || 'уп'} — разовое пополнение до НЗ (расход неизвестен)`,
-                    });
-                    items_ok++;
-                    continue;
+                let stock = stockRow?.value ?? 0;
+                const stockDate = stockRow?.date
+                    ? new Date(stockRow.date).toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    : null;
+
+                if (!stockRow) {
+                    logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Нет данных об остатке — принято 0` });
+                    items_warn++;
                 }
 
-                for (let di = 0; di < deliveryDates.length; di++) {
-                    const deliveryDate = deliveryDates[di];
-                    const nextDeliveryDate = deliveryDates[di + 1] ?? null;
+                // Симуляция: pendingDeliveries[dateStr] = qty в наших единицах
+                const pendingDeliveries = new Map<string, number>();
+                const orderedDates = new Set<string>();
+                const skuOrders: { date: Date; qty: number }[] = [];
 
-                    const daysUntilNext = nextDeliveryDate
-                        ? Math.round((nextDeliveryDate.getTime() - deliveryDate.getTime()) / 86400000)
-                        : 7;
+                for (let day = 0; day <= CalculationService.CALC_HORIZON_DAYS; day++) {
+                    const simDate = new Date(today);
+                    simDate.setDate(today.getDate() + day);
+                    const simDateStr = simDate.toISOString().split('T')[0];
 
-                    // НЗ добавляем только к первому заказу — как начальный буфер
-                    const nzBuffer = di === 0 ? item.nz : 0;
-                    const neededOurUnits = nzBuffer + dailyConsumption * daysUntilNext;
-                    const neededSupplierUnits = neededOurUnits / packMult;
-                    const finalQty = Math.max(1, Math.ceil(neededSupplierUnits / orderMult) * orderMult);
+                    // 1. Получаем заказы, прибывающие сегодня
+                    if (pendingDeliveries.has(simDateStr)) {
+                        stock += pendingDeliveries.get(simDateStr)!;
+                        pendingDeliveries.delete(simDateStr);
+                    }
 
-                    const dateStr = deliveryDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-                    pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: finalQty, date: deliveryDate });
+                    // 2. Суточный расход
+                    stock = Math.max(0, stock - dailyConsumption);
+
+                    // 3. Нужен ли заказ?
+                    if (stock < item.nz) {
+                        const delivDate = this.getNextDeliveryAfter(supplier.delivery_days, leadTime, simDate);
+                        if (delivDate) {
+                            const delivDateStr = delivDate.toISOString().split('T')[0];
+                            if (!orderedDates.has(delivDateStr)) {
+                                orderedDates.add(delivDateStr);
+
+                                // Следующая поставка после этой — для расчёта периода покрытия
+                                const nextDeliv = this.getNextDeliveryAfter(supplier.delivery_days, leadTime, delivDate);
+                                const coverDays = nextDeliv
+                                    ? Math.round((nextDeliv.getTime() - delivDate.getTime()) / 86400000)
+                                    : 7;
+
+                                // Сколько будет в наличии на момент доставки
+                                const daysToDeliv = Math.round((delivDate.getTime() - simDate.getTime()) / 86400000);
+                                const stockAtDeliv = Math.max(0, stock - dailyConsumption * daysToDeliv);
+
+                                // Заказываем: чтобы при доставке хватило до следующей поставки + НЗ
+                                const targetStock = item.nz + dailyConsumption * coverDays;
+                                const orderQtyOur = Math.max(0, targetStock - stockAtDeliv);
+                                const orderQtySupplier = Math.ceil(orderQtyOur / packMult / orderMult) * orderMult;
+                                const orderQtyOurRounded = orderQtySupplier * packMult;
+
+                                // Добавляем доставку в симуляцию
+                                pendingDeliveries.set(delivDateStr,
+                                    (pendingDeliveries.get(delivDateStr) ?? 0) + orderQtyOurRounded);
+
+                                skuOrders.push({ date: delivDate, qty: orderQtySupplier });
+
+                                const ds = delivDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                                logs.push({
+                                    level: 'success', address: code, sku_id: item.sku_id, sku_name: skuName,
+                                    message: `${ds}: ${orderQtySupplier} ${sku?.packaging_supplier || 'уп'} (остаток при доставке ~${stockAtDeliv.toFixed(1)}, покрытие ${coverDays}д, НЗ ${item.nz})`,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (skuOrders.length === 0 && stock >= item.nz) {
+                    const stockStr = stock.toFixed(1);
                     logs.push({
-                        level: 'success', address: code, sku_id: item.sku_id, sku_name: skuName,
-                        message: `${dateStr}: ${finalQty} ${sku?.packaging_supplier || 'уп'} (покрытие ${daysUntilNext}д, расход ${dailyConsumption.toFixed(2)}/д${di === 0 ? `, НЗ +${item.nz}` : ''})`,
+                        level: 'info', address: code, sku_id: item.sku_id, sku_name: skuName,
+                        message: `Заказ не нужен — остаток ${stockStr} >= НЗ ${item.nz} на весь период${stockDate ? ` (остаток от ${stockDate})` : ''}`,
                     });
+                }
+
+                for (const o of skuOrders) {
+                    pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: o.qty, date: o.date });
                 }
                 items_ok++;
             }
