@@ -196,7 +196,7 @@ export class CalculationService {
 
             const itemSettings = await this.itemSettingsRepo.find({ where: { address_code: code } });
             // Заказы этого адреса — собираем локально, затем делаем сводку
-            const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date; pricePerUnit?: number }[] = [];
+            const addrOrders: { supplier: string; supplierName: string; product_id: number; skuName: string; count: number; unit: string; date: Date; pricePerUnit?: number; packMult: number; orderMult: number; stockOur: number; nzVal: number }[] = [];
 
             if (itemSettings.length === 0) {
                 logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: 'Нет позиций в товарной матрице' });
@@ -276,6 +276,7 @@ export class CalculationService {
                     : null;
 
                 let stock = stockRow?.value ?? 0;
+                const initialStock = stock;
                 const stockDate = stockRow?.date
                     ? new Date(stockRow.date).toLocaleDateString('ru', { day: '2-digit', month: '2-digit', year: 'numeric' })
                     : null;
@@ -354,7 +355,7 @@ export class CalculationService {
 
                 for (const o of skuOrders) {
                     pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: o.qty, date: o.date });
-                    addrOrders.push({ supplier: item.supplier_role, supplierName: supplier.supplier_name, product_id: item.sku_id, skuName, count: o.qty, unit: sku?.packaging_supplier || 'уп', date: o.date, pricePerUnit });
+                    addrOrders.push({ supplier: item.supplier_role, supplierName: supplier.supplier_name, product_id: item.sku_id, skuName, count: o.qty, unit: sku?.packaging_supplier || 'уп', date: o.date, pricePerUnit, packMult: packMult, orderMult: orderMult, stockOur: initialStock, nzVal: item.nz });
                 }
                 items_ok++;
             }
@@ -380,7 +381,6 @@ export class CalculationService {
                     }
                     const supplierLabel = suppSett?.supplier_name || supplierRole;
                     const dateFormatted = new Date(dateStr).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-                    const itemLines = orders.map(o => `${o.skuName} ×${o.count} ${o.unit}`).join(', ');
                     const minSum = suppSett?.min_order_sum;
 
                     let sumSuffix = '';
@@ -394,18 +394,62 @@ export class CalculationService {
                                 missingPrices++;
                             }
                         }
+
+                        // Добор до минимальной суммы (как в боте: по одному orderMult за итерацию,
+                        // выбираем позицию с наименьшим покрытием НЗ)
+                        if (missingPrices === 0 && totalSum > 0 && totalSum < minSum) {
+                            const validForTopup = orders.filter(o => o.pricePerUnit !== undefined && o.orderMult > 0);
+                            const initialSumBeforeTopup = totalSum;
+
+                            while (totalSum < minSum && validForTopup.length > 0) {
+                                // Выбираем позицию с наименьшим покрытием: (остаток + заказ_в_наших) / НЗ
+                                const target = validForTopup.reduce((best, o) => {
+                                    const coverage = (o.nzVal > 0)
+                                        ? (o.stockOur + o.count * o.packMult) / o.nzVal
+                                        : 999999;
+                                    const bestCoverage = (best.nzVal > 0)
+                                        ? (best.stockOur + best.count * best.packMult) / best.nzVal
+                                        : 999999;
+                                    return coverage < bestCoverage ? o : best;
+                                });
+
+                                target.count += target.orderMult;
+                                const addedCost = target.orderMult * (target.pricePerUnit ?? 0);
+                                totalSum += addedCost;
+
+                                // Синхронизируем pendingOrders
+                                const pi = pendingOrders.findIndex(p =>
+                                    p.address === code &&
+                                    p.supplier === target.supplier &&
+                                    p.product_id === target.product_id &&
+                                    p.date.toISOString() === target.date.toISOString(),
+                                );
+                                if (pi >= 0) {
+                                    pendingOrders[pi].count += target.orderMult;
+                                } else {
+                                    pendingOrders.push({ address: code, supplier: target.supplier, product_id: target.product_id, count: target.orderMult, date: target.date });
+                                }
+                            }
+
+                            logs.push({
+                                level: 'warn', address: code, sku_id: 0, sku_name: '',
+                                message: `⚠️ Сумма ${initialSumBeforeTopup.toFixed(0)} ₽ < мин. ${minSum} ₽ — выполнен добор до ~${totalSum.toFixed(0)} ₽`,
+                            });
+                        }
+
                         if (missingPrices > 0) {
                             sumSuffix = ` | мин. сумма ${minSum} ₽ (цена не найдена для ${missingPrices} поз. — проверьте вручную)`;
                         } else if (totalSum < minSum) {
-                            sumSuffix = ` | ⚠️ сумма ~${totalSum.toFixed(0)} ₽ < мин. ${minSum} ₽`;
+                            sumSuffix = ` | ⚠️ сумма ~${totalSum.toFixed(0)} ₽ < мин. ${minSum} ₽ (нет позиций для добора)`;
                         } else {
                             sumSuffix = ` | сумма ~${totalSum.toFixed(0)} ₽ ✓`;
                         }
                     }
 
+                    const itemLinesAfterTopup = orders.map(o => `${o.skuName} ×${o.count} ${o.unit}`).join(', ');
                     logs.push({
                         level: 'info', address: code, sku_id: 0, sku_name: '',
-                        message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLines}${sumSuffix}`,
+                        message: `📦 ${supplierLabel} | ${dateFormatted} | ${orders.length} поз: ${itemLinesAfterTopup}${sumSuffix}`,
                     });
                 }
             }
