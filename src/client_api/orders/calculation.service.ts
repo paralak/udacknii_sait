@@ -228,34 +228,41 @@ export class CalculationService {
                 const dailyConsumption = rashodValue * (item.consumption_factor ?? 1);
                 const orderMult = item.order_multiple ?? sku?.order_multiple ?? 1;
 
+                if (dailyConsumption === 0) {
+                    // Расход = 0: один заказ на первую поставку для пополнения до НЗ
+                    const deliveryDate = deliveryDates[0];
+                    const nzSupplierUnits = item.nz / packMult;
+                    const finalQty = Math.max(1, Math.ceil(nzSupplierUnits / orderMult) * orderMult);
+                    const dateStr = deliveryDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+
+                    pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: finalQty, date: deliveryDate });
+                    logs.push({
+                        level: 'success', address: code, sku_id: item.sku_id, sku_name: skuName,
+                        message: `${dateStr}: ${finalQty} ${sku?.packaging_supplier || 'уп'} — разовое пополнение до НЗ (расход неизвестен)`,
+                    });
+                    items_ok++;
+                    continue;
+                }
+
                 for (let di = 0; di < deliveryDates.length; di++) {
                     const deliveryDate = deliveryDates[di];
                     const nextDeliveryDate = deliveryDates[di + 1] ?? null;
 
-                    // Покрываем период до следующей поставки + НЗ
                     const daysUntilNext = nextDeliveryDate
                         ? Math.round((nextDeliveryDate.getTime() - deliveryDate.getTime()) / 86400000)
-                        : 7; // для последней поставки — 7 дней буфер
+                        : 7;
 
-                    const neededOurUnits = item.nz + dailyConsumption * daysUntilNext;
+                    // НЗ добавляем только к первому заказу — как начальный буфер
+                    const nzBuffer = di === 0 ? item.nz : 0;
+                    const neededOurUnits = nzBuffer + dailyConsumption * daysUntilNext;
                     const neededSupplierUnits = neededOurUnits / packMult;
                     const finalQty = Math.max(1, Math.ceil(neededSupplierUnits / orderMult) * orderMult);
 
                     const dateStr = deliveryDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-                    pendingOrders.push({
-                        address: code,
-                        supplier: item.supplier_role,
-                        product_id: item.sku_id,
-                        count: finalQty,
-                        date: deliveryDate,
-                    });
-
+                    pendingOrders.push({ address: code, supplier: item.supplier_role, product_id: item.sku_id, count: finalQty, date: deliveryDate });
                     logs.push({
-                        level: 'success',
-                        address: code,
-                        sku_id: item.sku_id,
-                        sku_name: skuName,
-                        message: `${dateStr}: ${finalQty} ${sku?.packaging_supplier || 'уп'} (покрытие ${daysUntilNext}д, расход ${dailyConsumption.toFixed(2)}/д, НЗ ${item.nz})`,
+                        level: 'success', address: code, sku_id: item.sku_id, sku_name: skuName,
+                        message: `${dateStr}: ${finalQty} ${sku?.packaging_supplier || 'уп'} (покрытие ${daysUntilNext}д, расход ${dailyConsumption.toFixed(2)}/д${di === 0 ? `, НЗ +${item.nz}` : ''})`,
                     });
                 }
                 items_ok++;
