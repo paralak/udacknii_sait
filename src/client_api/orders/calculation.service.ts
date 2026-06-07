@@ -157,15 +157,10 @@ export class CalculationService {
 
                 // ── Проверка 1: расход ──────────────────────────
                 const rashod = await this.rashodRepo.findOne({ where: { address: code, item: item.sku_id } });
+                const rashodValue = rashod?.value ?? 0;
                 if (!rashod) {
-                    logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: 'Нет данных о суточном расходе' });
-                    items_error++;
-                    continue;
-                }
-                if (rashod.value <= 0) {
-                    logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Расход = 0, позиция пропущена` });
+                    logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: 'Нет данных о суточном расходе — принято 0' });
                     items_warn++;
-                    continue;
                 }
 
                 // ── Проверка 2: НЗ ─────────────────────────────
@@ -200,10 +195,10 @@ export class CalculationService {
                 }
 
                 // ── Проверка 6: срок поставки ──────────────────
+                const leadTime = supplier.lead_time_days ?? 0;
                 if (supplier.lead_time_days === null || supplier.lead_time_days === undefined) {
-                    logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Поставщик «${supplier.supplier_name}»: не задан срок поставки (lead_time_days)` });
-                    items_error++;
-                    continue;
+                    logs.push({ level: 'warn', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Поставщик «${supplier.supplier_name}»: срок поставки не задан — принято 0 дней` });
+                    items_warn++;
                 }
 
                 // ── Проверка 7: коэффициент упаковки ──────────
@@ -215,16 +210,16 @@ export class CalculationService {
                 }
 
                 // ── Расчёт ─────────────────────────────────────
-                const nextDelivery = this.getNextDeliveryDate(supplier.delivery_days, supplier.lead_time_days, today);
+                const nextDelivery = this.getNextDeliveryDate(supplier.delivery_days, leadTime, today);
                 if (!nextDelivery) {
                     logs.push({ level: 'error', address: code, sku_id: item.sku_id, sku_name: skuName, message: `Не удалось определить ближайшую дату доставки` });
                     items_error++;
                     continue;
                 }
 
-                const dailyConsumption = rashod.value * (item.consumption_factor ?? 1);
+                const dailyConsumption = rashodValue * (item.consumption_factor ?? 1);
                 // Нужно покрыть: НЗ + потребление за период (lead_time + запас на 1 неделю)
-                const coverDays = supplier.lead_time_days + 7;
+                const coverDays = leadTime + 7;
                 const neededOurUnits = item.nz + dailyConsumption * coverDays;
                 const neededSupplierUnits = neededOurUnits / packMult;
                 const orderMult = item.order_multiple ?? sku?.order_multiple ?? 1;
@@ -236,7 +231,7 @@ export class CalculationService {
                     address: code,
                     sku_id: item.sku_id,
                     sku_name: skuName,
-                    message: `${finalQty} ${sku?.packaging_supplier || 'уп'} → ${supplier.supplier_name} (доставка ${deliveryDateStr}) | расход: ${dailyConsumption.toFixed(2)}/день, НЗ: ${item.nz}, упаковка: ×${packMult}`,
+                    message: `${finalQty} ${sku?.packaging_supplier || 'уп'} → ${supplier.supplier_name} (доставка ${deliveryDateStr}) | расход: ${dailyConsumption.toFixed(2)}/день, НЗ: ${item.nz}, lead_time: ${leadTime}д, упаковка: ×${packMult}`,
                 });
                 items_ok++;
 
