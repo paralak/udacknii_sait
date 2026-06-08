@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
+import { OrderAccess } from 'src/db/order_access.entity';
 import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
 import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { SkuRashod } from 'src/db/sku_rashod.entity';
@@ -78,6 +79,9 @@ export class CalculationService {
 
         @InjectRepository(ZakupRashodniki)
         private zakupRepo: Repository<ZakupRashodniki>,
+
+        @InjectRepository(OrderAccess)
+        private orderAccessRepo: Repository<OrderAccess>,
     ) {}
 
     async checkToken(headers: Record<string, string>): Promise<{ status: string; userId?: number; message?: string }> {
@@ -406,6 +410,28 @@ export class CalculationService {
                 await this.ordersTableRepo.save(row);
                 ordersCreated++;
             }
+
+            // Диапазон дат заказа
+            const dates = pendingOrders.map(o => o.date.getTime());
+            const startDay = new Date(Math.min(...dates));
+            const endDay = new Date(Math.max(...dates));
+
+            // Удаляем старые записи order_access для расчётных заказов
+            const oldCalcAccess = await this.orderAccessRepo.find({ where: { flag: 'TM_AUTOZAKAZI' } });
+            const oldCalcIds = oldCalcAccess.filter(r => r.order_id.startsWith('calc_'));
+            if (oldCalcIds.length > 0) {
+                await this.orderAccessRepo.remove(oldCalcIds);
+            }
+
+            // Вставляем новую запись
+            const access = this.orderAccessRepo.create({
+                name: 'Расчёт автозаказов',
+                flag: 'TM_AUTOZAKAZI',
+                order_id: orderId,
+                start_day: startDay,
+                end_day: endDay,
+            });
+            await this.orderAccessRepo.save(access);
 
             logs.push({ level: 'success', address: '', sku_id: 0, sku_name: '', message: `✅ Сохранено ${ordersCreated} позиций. ID заказа: ${orderId}` });
         }
