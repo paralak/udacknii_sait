@@ -349,19 +349,25 @@ export class CalculationService {
                     }
 
                     // 4. Проверяем, нужен ли заказ
-                    for (const item of items) {
-                        const s = stocks.get(item.sku_id) ?? 0;
-                        if (s < item.nzVal) {
-                            const delivDate = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, simDate);
-                            if (!delivDate) continue;
-                            const delivDateStr = delivDate.toISOString().split('T')[0];
+                    // Дата следующей доступной поставки одна для всех позиций поставщика
+                    const nextOrderableDelivery = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, simDate);
+                    if (nextOrderableDelivery) {
+                        const delivDateStr = nextOrderableDelivery.toISOString().split('T')[0];
+                        const daysToDeliv = Math.round((nextOrderableDelivery.getTime() - simDate.getTime()) / 86400000);
+
+                        for (const item of items) {
+                            const s = stocks.get(item.sku_id) ?? 0;
+
+                            // Триггер: текущего остатка не хватит чтобы доехать до поставки с НЗ?
+                            // s <= НЗ + расход * дней_до_поставки
+                            if (s > item.nzVal + item.dailyConsumption * daysToDeliv) continue;
+
                             if (orderedDates.get(item.sku_id)!.has(delivDateStr)) continue;
                             orderedDates.get(item.sku_id)!.add(delivDateStr);
 
-                            const daysToDeliv = Math.round((delivDate.getTime() - simDate.getTime()) / 86400000);
                             const stockAtDeliv = Math.max(0, s - item.dailyConsumption * daysToDeliv);
-                            const nextDeliv = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, delivDate);
-                            const coverDays = nextDeliv ? Math.round((nextDeliv.getTime() - delivDate.getTime()) / 86400000) : 7;
+                            const nextDeliv = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, nextOrderableDelivery);
+                            const coverDays = nextDeliv ? Math.round((nextDeliv.getTime() - nextOrderableDelivery.getTime()) / 86400000) : 7;
                             const targetStock = item.nzVal + item.dailyConsumption * coverDays;
                             const orderQtyOur = Math.max(0, targetStock - stockAtDeliv);
                             const orderQtySupplier = Math.ceil(orderQtyOur / item.packMult / item.orderMult) * item.orderMult;
@@ -370,7 +376,7 @@ export class CalculationService {
                                 if (!accumulated.has(delivDateStr)) accumulated.set(delivDateStr, new Map());
                                 accumulated.get(delivDateStr)!.set(item.sku_id, (accumulated.get(delivDateStr)!.get(item.sku_id) ?? 0) + orderQtySupplier);
 
-                                const ds = delivDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                                const ds = nextOrderableDelivery.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
                                 logs.push({ level: 'success', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `${ds}: ${orderQtySupplier} ${item.unit} (остаток при доставке ~${stockAtDeliv.toFixed(1)}, покрытие ${coverDays}д, НЗ ${item.nzVal})` });
                             }
                         }
