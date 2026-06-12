@@ -147,26 +147,24 @@ export class ChatService {
 
     // Получить список пользователей, которым можно отправить сообщение
     async getUsersList(UserId: number) {
-        let r = await this.hidForChatRepository.find();
+        const r = await this.hidForChatRepository.find();
         if (!r || r.length === 0) {
             return {
                 status: 'error',
                 message: 'Пользователи не найдены',
             };
         }
-        // для каждого пользователя найти его имя в иерархии и добавить его в ответ
-        let ans = [];
-        for (let user of r) {
-            let hierarchy = await this.hierarchyRepository.findOne({
-                where: { id: user.hid }
-            });
-            ans.push(hierarchy);
-        }
-        // удалить из ответа пользователя который делает запрос
-        ans = ans.filter(user => user.id !== UserId);
+        // Уникальные hid, исключая текущего пользователя
+        const uniqueHids = [...new Set(r.map(u => u.hid))].filter(hid => hid !== UserId);
+        // Один запрос за всеми: только видимые записи (parent_id != -1)
+        const users = await this.hierarchyRepository.find({
+            where: { id: In(uniqueHids) },
+        });
+        // Финальный фильтр: исключаем скрытые (parent_id = -1) и null
+        const data = users.filter(u => u && u.parent_id !== -1);
         return {
             status: 'success',
-            data: ans,
+            data,
         };
     }
 
