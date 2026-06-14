@@ -378,9 +378,13 @@ export class CalculationService {
                         }
                     }
 
-                    // 3. Суточный расход (разрешаем уход в минус — это реальный дефицит)
+                    // 3. Суточный расход.
+                    // До первого заказа остаток не уходит в минус (физическая реальность).
+                    // После размещения заказа — разрешаем отрицательные (ожидаемый дефицит до поставки).
                     for (const item of items) {
-                        stocks.set(item.sku_id, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption);
+                        const afterConsumption = (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption;
+                        const hasOrder = orderedDates.get(item.sku_id)!.size > 0;
+                        stocks.set(item.sku_id, hasOrder ? afterConsumption : Math.max(0, afterConsumption));
                     }
 
                     // 4. Проверяем, нужен ли заказ
