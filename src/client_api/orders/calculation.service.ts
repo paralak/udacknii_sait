@@ -238,20 +238,20 @@ export class CalculationService {
                 const minSum = suppSett.min_order_sum;
                 const supplierLabel = suppSett.supplier_name || supplierRole;
 
-                // Ожидаемые поставки: дата → sku_id → кол-во в наших единицах
+                // Ожидаемые поставки: дата → sku_id → кол-во в НАШИХ единицах
                 const simPending = new Map<string, Map<number, number>>();
 
-                // Проецируем начальный остаток от даты инвентаризации на сегодня
+                // Начальный остаток: проецируем от даты инвентаризации на сегодня
                 const stocks = new Map<number, number>();
                 for (const item of items) {
                     const invDate = new Date(item.stockDate);
                     invDate.setHours(0, 0, 0, 0);
                     const daysSince = Math.max(0, Math.round((today.getTime() - invDate.getTime()) / 86400000));
-                    stocks.set(item.sku_id, item.initialStock - item.dailyConsumption * daysSince);
+                    stocks.set(item.sku_id, Math.max(0, item.initialStock - item.dailyConsumption * daysSince));
                 }
 
-                // Загружаем существующие заказы для этого адреса+поставщика:
-                // прошлые — корректируют начальный сток, будущие — идут в simPending
+                // Существующие заказы: прошлые → корректируют начальный сток, будущие → simPending
+                // count в orders_table — единицы поставщика; делим на packMult → наши единицы
                 const existingOrders = await this.ordersTableRepo.find({
                     where: { address: code, supplier: supplierRole },
                 });
@@ -261,40 +261,79 @@ export class CalculationService {
                     const dateStr = delivDate.toISOString().split('T')[0];
                     const it = items.find(i => i.sku_id === order.product_id);
                     if (!it) continue;
-                    const qtyOur = order.count * it.packMult;
+                    const ourUnits = order.count / it.packMult;
                     if (delivDate <= today) {
                         const invDate = new Date(it.stockDate);
                         invDate.setHours(0, 0, 0, 0);
                         if (delivDate >= invDate) {
-                            stocks.set(it.sku_id, (stocks.get(it.sku_id) ?? 0) + qtyOur);
+                            stocks.set(it.sku_id, Math.max(0, (stocks.get(it.sku_id) ?? 0) + ourUnits));
                         }
                     } else {
                         if (!simPending.has(dateStr)) simPending.set(dateStr, new Map());
-                        simPending.get(dateStr)!.set(it.sku_id, (simPending.get(dateStr)!.get(it.sku_id) ?? 0) + qtyOur);
+                        simPending.get(dateStr)!.set(it.sku_id, (simPending.get(dateStr)!.get(it.sku_id) ?? 0) + ourUnits);
                     }
                 }
 
-                // Запоминаем сток на день 0 для логов
                 const day0Stocks = new Map<number, number>(stocks);
+                const orderedSkus = new Set<number>(); // позиции, по которым был сформирован хоть один заказ
 
-                // Накопленные базовые заказы до финализации: дата → sku_id → кол-во в упаковках поставщика
-                const accumulated = new Map<string, Map<number, number>>();
+                // ── День-за-днём ──────────────────────────────────────────────
+                // Проверяем остаток только в дни поставки — симуляция сама доходит
+                // до нужного дня, не нужно считать «дней до поставки» отдельно.
+                for (let day = 0; day <= CalculationService.CALC_HORIZON_DAYS; day++) {
+                    const simDate = new Date(today);
+                    simDate.setDate(today.getDate() + day);
+                    const simDateStr = simDate.toISOString().split('T')[0];
 
-                // Уже заказанные даты доставки для каждого SKU
-                const orderedDates = new Map<number, Set<string>>(items.map(i => [i.sku_id, new Set()]));
+                    // 1. Получаем поставки этого дня
+                    const incoming = simPending.get(simDateStr);
+                    if (incoming) {
+                        for (const [skuId, qty] of incoming) {
+                            stocks.set(skuId, (stocks.get(skuId) ?? 0) + qty);
+                        }
+                    }
 
-                const finalizedDates = new Set<string>();
+                    // 2. Суточный расход
+                    for (const item of items) {
+                        stocks.set(item.sku_id, Math.max(0, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption));
+                    }
 
-                // Финализация заказа на дату delivDateStr:
-                // 1. Применяем добор до min_order_sum
-                // 2. Добавляем в simPending (симуляция получит правильный сток)
-                // 3. Логируем 📦 сводку
-                // 4. Добавляем в pendingOrders
-                const finalizeDelivery = (delivDateStr: string, orderMap: Map<number, number>) => {
-                    const delivDate = new Date(delivDateStr);
+                    // 3. Проверяем только дни поставки, на которые ещё можно успеть заказать
+                    const systemDay = (simDate.getDay() + 6) % 7;
+                    const delivDays = suppSett.delivery_days.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+                    if (!delivDays.includes(systemDay)) continue;
 
+                    const deadline = new Date(simDate);
+                    deadline.setDate(simDate.getDate() - leadTime);
+                    deadline.setHours(0, 0, 0, 0);
+                    if (deadline < today) continue; // дедлайн прошёл — пропускаем эту дату
+
+                    // Горизонт покрытия = дней до следующей поставки
+                    const nextDeliv = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, simDate);
+                    const coverDays = nextDeliv
+                        ? Math.round((nextDeliv.getTime() - simDate.getTime()) / 86400000)
+                        : 7;
+
+                    // Формируем заказ на эту дату поставки
+                    const dayOrder = new Map<number, number>(); // sku_id → единицы поставщика
+
+                    for (const item of items) {
+                        const s = stocks.get(item.sku_id) ?? 0;
+                        const threshold = item.nzVal + item.dailyConsumption * coverDays;
+                        if (s >= threshold) continue;
+
+                        const orderQtyOur = threshold - s;
+                        const orderQtySupplier = Math.ceil(orderQtyOur * item.packMult / item.orderMult) * item.orderMult;
+                        if (orderQtySupplier > 0) {
+                            dayOrder.set(item.sku_id, orderQtySupplier);
+                        }
+                    }
+
+                    if (dayOrder.size === 0) continue;
+
+                    // Добор до min_order_sum
                     let totalSum = 0, missingPrices = 0;
-                    for (const [skuId, qty] of orderMap) {
+                    for (const [skuId, qty] of dayOrder) {
                         const it = items.find(i => i.sku_id === skuId)!;
                         if (it.pricePerUnit !== undefined) totalSum += qty * it.pricePerUnit;
                         else missingPrices++;
@@ -302,8 +341,10 @@ export class CalculationService {
 
                     if (missingPrices === 0 && minSum && totalSum > 0 && totalSum < minSum) {
                         const pool = items.filter(i => i.pricePerUnit !== undefined && i.orderMult > 0);
-                        // Для добора используем стоки симуляции на момент финализации
-                        const topupStocks = new Map<number, number>(items.map(i => [i.sku_id, stocks.get(i.sku_id) ?? 0]));
+                        // topupStocks — сток с учётом текущего заказа (в наших единицах)
+                        const topupStocks = new Map<number, number>(
+                            items.map(i => [i.sku_id, (stocks.get(i.sku_id) ?? 0) + (dayOrder.get(i.sku_id) ?? 0) / i.packMult])
+                        );
                         const initialSumBeforeTopup = totalSum;
 
                         while (totalSum < minSum && pool.length > 0) {
@@ -314,31 +355,33 @@ export class CalculationService {
                                 const bestDays = best.dailyConsumption > 0 ? bs / best.dailyConsumption : (best.nzVal > 0 ? (bs / best.nzVal) * 30 : 999999);
                                 return days < bestDays ? p : best;
                             });
-                            topupStocks.set(target.sku_id, (topupStocks.get(target.sku_id) ?? 0) + target.orderMult * target.packMult);
-                            orderMap.set(target.sku_id, (orderMap.get(target.sku_id) ?? 0) + target.orderMult);
+                            topupStocks.set(target.sku_id, (topupStocks.get(target.sku_id) ?? 0) + target.orderMult / target.packMult);
+                            dayOrder.set(target.sku_id, (dayOrder.get(target.sku_id) ?? 0) + target.orderMult);
                             totalSum += target.orderMult * (target.pricePerUnit ?? 0);
                         }
 
                         logs.push({ level: 'warn', address: code, sku_id: 0, sku_name: '', message: `⚠️ Сумма ${initialSumBeforeTopup.toFixed(0)} ₽ < мин. ${minSum} ₽ — выполнен добор до ~${totalSum.toFixed(0)} ₽` });
                     }
 
-                    // Добавляем в симуляцию (с учётом добора) — следующие дни увидят правильный сток
-                    if (!simPending.has(delivDateStr)) simPending.set(delivDateStr, new Map());
-                    for (const [skuId, qty] of orderMap) {
+                    // Применяем заказ к симуляции и записываем в pendingOrders
+                    const dateFormatted = simDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                    for (const [skuId, qty] of dayOrder) {
                         const it = items.find(i => i.sku_id === skuId)!;
-                        const ourUnits = qty * it.packMult;
-                        simPending.get(delivDateStr)!.set(skuId, (simPending.get(delivDateStr)!.get(skuId) ?? 0) + ourUnits);
-                        pendingOrders.push({ address: code, supplier: supplierRole, product_id: skuId, count: qty, date: delivDate });
+                        const ourUnits = qty / it.packMult;
+                        stocks.set(skuId, (stocks.get(skuId) ?? 0) + ourUnits);
+                        orderedSkus.add(skuId);
+                        const stockAfter = stocks.get(skuId) ?? 0;
+                        logs.push({ level: 'success', address: code, sku_id: skuId, sku_name: it.skuName, message: `${dateFormatted}: ${qty} ${it.unit} → остаток ~${stockAfter.toFixed(1)}, покрытие ${coverDays}д, НЗ ${it.nzVal}` });
+                        pendingOrders.push({ address: code, supplier: supplierRole, product_id: skuId, count: qty, date: simDate });
                     }
 
-                    // Лог 📦
-                    const dateFormatted = delivDate.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
+                    // Лог 📦 (сводка по дате)
                     let sumSuffix = '';
                     if (missingPrices > 0) {
-                        sumSuffix = ` | мин. сумма ${minSum ?? '?'} ₽ (цена не найдена для ${missingPrices} поз. — проверьте вручную)`;
+                        sumSuffix = ` | мин. сумма ${minSum ?? '?'} ₽ (цена не найдена для ${missingPrices} поз.)`;
                     } else if (minSum) {
                         let finalSum = 0;
-                        for (const [skuId, qty] of orderMap) {
+                        for (const [skuId, qty] of dayOrder) {
                             const it = items.find(i => i.sku_id === skuId)!;
                             if (it.pricePerUnit !== undefined) finalSum += qty * it.pricePerUnit;
                         }
@@ -346,91 +389,15 @@ export class CalculationService {
                             ? ` | ⚠️ сумма ~${finalSum.toFixed(0)} ₽ < мин. ${minSum} ₽ (нет позиций для добора)`
                             : ` | сумма ~${finalSum.toFixed(0)} ₽ ✓`;
                     }
-                    const itemLines = Array.from(orderMap.entries())
+                    const itemLines = Array.from(dayOrder.entries())
                         .map(([skuId, qty]) => { const it = items.find(i => i.sku_id === skuId)!; return `${it.skuName} ×${qty} ${it.unit}`; })
                         .join(', ');
-                    logs.push({ level: 'info', address: code, sku_id: 0, sku_name: '', message: `📦 ${supplierLabel} | ${dateFormatted} | ${orderMap.size} поз: ${itemLines}${sumSuffix}` });
-                };
-
-                // ── День-за-днём ──────────────────────────────────────────────
-                for (let day = 0; day <= CalculationService.CALC_HORIZON_DAYS; day++) {
-                    const simDate = new Date(today);
-                    simDate.setDate(today.getDate() + day);
-                    const simDateStr = simDate.toISOString().split('T')[0];
-
-                    // 1. Финализируем заказы, чей дедлайн наступил
-                    for (const [delivDateStr, orderMap] of accumulated) {
-                        if (finalizedDates.has(delivDateStr)) continue;
-                        const deadline = new Date(delivDateStr);
-                        deadline.setDate(deadline.getDate() - leadTime);
-                        deadline.setHours(0, 0, 0, 0);
-                        if (simDateStr >= deadline.toISOString().split('T')[0]) {
-                            finalizedDates.add(delivDateStr);
-                            finalizeDelivery(delivDateStr, orderMap);
-                        }
-                    }
-
-                    // 2. Получаем поставки этого дня (включая только что финализированные)
-                    const incoming = simPending.get(simDateStr);
-                    if (incoming) {
-                        for (const [skuId, qty] of incoming) {
-                            stocks.set(skuId, (stocks.get(skuId) ?? 0) + qty);
-                        }
-                    }
-
-                    // 3. Суточный расход
-                    for (const item of items) {
-                        stocks.set(item.sku_id, Math.max(0, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption));
-                    }
-
-                    // 4. Проверяем, нужен ли заказ
-                    // Дата следующей доступной поставки одна для всех позиций поставщика
-                    const nextOrderableDelivery = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, simDate);
-                    if (nextOrderableDelivery) {
-                        const delivDateStr = nextOrderableDelivery.toISOString().split('T')[0];
-                        const daysToDeliv = Math.round((nextOrderableDelivery.getTime() - simDate.getTime()) / 86400000);
-
-                        for (const item of items) {
-                            const s = stocks.get(item.sku_id) ?? 0;
-
-                            // Триггер: текущего остатка не хватит чтобы доехать до поставки с НЗ?
-                            // s <= НЗ + расход * дней_до_поставки
-                            if (s > item.nzVal + item.dailyConsumption * daysToDeliv) continue;
-
-                            if (orderedDates.get(item.sku_id)!.has(delivDateStr)) continue;
-                            orderedDates.get(item.sku_id)!.add(delivDateStr);
-
-                            const stockAtDeliv = s - item.dailyConsumption * daysToDeliv;
-                            const nextDeliv = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, nextOrderableDelivery);
-                            const coverDays = nextDeliv ? Math.round((nextDeliv.getTime() - nextOrderableDelivery.getTime()) / 86400000) : 7;
-                            const targetStock = item.nzVal + item.dailyConsumption * coverDays;
-                            const orderQtyOur = Math.max(0, targetStock - stockAtDeliv);
-                            // packMult: наши единицы → единицы поставщика; orderMult: минимальный шаг заказа
-                            const orderQtySupplier = Math.ceil(orderQtyOur * item.packMult / item.orderMult) * item.orderMult;
-
-                            if (orderQtySupplier > 0) {
-                                if (!accumulated.has(delivDateStr)) accumulated.set(delivDateStr, new Map());
-                                accumulated.get(delivDateStr)!.set(item.sku_id, (accumulated.get(delivDateStr)!.get(item.sku_id) ?? 0) + orderQtySupplier);
-
-                                const ds = nextOrderableDelivery.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-                                logs.push({ level: 'success', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `${ds}: ${orderQtySupplier} ${item.unit} (остаток при доставке ~${stockAtDeliv.toFixed(1)}, покрытие ${coverDays}д, НЗ ${item.nzVal})` });
-                            }
-                        }
-                    }
-                }
-
-                // Финализируем оставшиеся (дедлайн не наступил в пределах горизонта)
-                for (const [delivDateStr, orderMap] of accumulated) {
-                    if (!finalizedDates.has(delivDateStr)) {
-                        finalizedDates.add(delivDateStr);
-                        finalizeDelivery(delivDateStr, orderMap);
-                    }
+                    logs.push({ level: 'info', address: code, sku_id: 0, sku_name: '', message: `📦 ${supplierLabel} | ${dateFormatted} | ${dayOrder.size} поз: ${itemLines}${sumSuffix}` });
                 }
 
                 // Позиции без заказов
                 for (const item of items) {
-                    const hadOrders = Array.from(accumulated.values()).some(m => m.has(item.sku_id));
-                    if (!hadOrders) {
+                    if (!orderedSkus.has(item.sku_id)) {
                         const d0 = day0Stocks.get(item.sku_id) ?? 0;
                         logs.push({ level: 'info', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `Заказ не нужен — остаток сегодня ~${d0.toFixed(1)} >= НЗ ${item.nzVal} на весь период` });
                     }
