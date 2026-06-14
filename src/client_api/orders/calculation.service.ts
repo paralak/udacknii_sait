@@ -250,30 +250,6 @@ export class CalculationService {
                     stocks.set(item.sku_id, Math.max(0, item.initialStock - item.dailyConsumption * daysSince));
                 }
 
-                // Существующие заказы: прошлые → корректируют начальный сток, будущие → simPending
-                // count в orders_table — единицы поставщика; делим на packMult → наши единицы
-                const existingOrders = await this.ordersTableRepo.find({
-                    where: { address: code, supplier: supplierRole },
-                });
-                for (const order of existingOrders) {
-                    const delivDate = new Date(order.date);
-                    delivDate.setHours(0, 0, 0, 0);
-                    const dateStr = delivDate.toISOString().split('T')[0];
-                    const it = items.find(i => i.sku_id === order.product_id);
-                    if (!it) continue;
-                    const ourUnits = order.count / it.packMult;
-                    if (delivDate <= today) {
-                        const invDate = new Date(it.stockDate);
-                        invDate.setHours(0, 0, 0, 0);
-                        if (delivDate >= invDate) {
-                            stocks.set(it.sku_id, Math.max(0, (stocks.get(it.sku_id) ?? 0) + ourUnits));
-                        }
-                    } else {
-                        if (!simPending.has(dateStr)) simPending.set(dateStr, new Map());
-                        simPending.get(dateStr)!.set(it.sku_id, (simPending.get(dateStr)!.get(it.sku_id) ?? 0) + ourUnits);
-                    }
-                }
-
                 const day0Stocks = new Map<number, number>(stocks);
                 const orderedSkus = new Set<number>(); // позиции, по которым был сформирован хоть один заказ
 
