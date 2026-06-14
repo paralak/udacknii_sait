@@ -238,9 +238,6 @@ export class CalculationService {
                 const minSum = suppSett.min_order_sum;
                 const supplierLabel = suppSett.supplier_name || supplierRole;
 
-                // Ожидаемые поставки: дата → sku_id → кол-во в НАШИХ единицах
-                const simPending = new Map<string, Map<number, number>>();
-
                 // Начальный остаток: проецируем от даты инвентаризации на сегодня
                 const stocks = new Map<number, number>();
                 for (const item of items) {
@@ -261,20 +258,12 @@ export class CalculationService {
                     simDate.setDate(today.getDate() + day);
                     const simDateStr = simDate.toISOString().split('T')[0];
 
-                    // 1. Получаем поставки этого дня
-                    const incoming = simPending.get(simDateStr);
-                    if (incoming) {
-                        for (const [skuId, qty] of incoming) {
-                            stocks.set(skuId, (stocks.get(skuId) ?? 0) + qty);
-                        }
-                    }
-
-                    // 2. Суточный расход
+                    // 1. Суточный расход
                     for (const item of items) {
                         stocks.set(item.sku_id, Math.max(0, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption));
                     }
 
-                    // 3. Проверяем только дни поставки, на которые ещё можно успеть заказать
+                    // 2. Проверяем только дни поставки, на которые ещё можно успеть заказать
                     const systemDay = (simDate.getDay() + 6) % 7;
                     const delivDays = suppSett.delivery_days.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
                     if (!delivDays.includes(systemDay)) continue;
