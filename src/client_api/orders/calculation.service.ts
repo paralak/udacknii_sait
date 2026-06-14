@@ -45,6 +45,7 @@ interface ValidItem {
     dailyConsumption: number;
     nzVal: number;
     initialStock: number;
+    stockDate: Date;
 }
 
 @Injectable()
@@ -225,6 +226,7 @@ export class CalculationService {
                     dailyConsumption: (rashod?.value ?? 0) * (item.consumption_factor ?? 1),
                     nzVal: item.nz,
                     initialStock: stockRow?.value ?? 0,
+                    stockDate: stockRow?.date ? new Date(stockRow.date) : today,
                 });
                 items_ok++;
             }
@@ -236,11 +238,44 @@ export class CalculationService {
                 const minSum = suppSett.min_order_sum;
                 const supplierLabel = suppSett.supplier_name || supplierRole;
 
-                // Текущие остатки (изменяются в симуляции)
-                const stocks = new Map<number, number>(items.map(i => [i.sku_id, i.initialStock]));
-
                 // Ожидаемые поставки: дата → sku_id → кол-во в наших единицах
                 const simPending = new Map<string, Map<number, number>>();
+
+                // Проецируем начальный остаток от даты инвентаризации на сегодня
+                const stocks = new Map<number, number>();
+                for (const item of items) {
+                    const invDate = new Date(item.stockDate);
+                    invDate.setHours(0, 0, 0, 0);
+                    const daysSince = Math.max(0, Math.round((today.getTime() - invDate.getTime()) / 86400000));
+                    stocks.set(item.sku_id, item.initialStock - item.dailyConsumption * daysSince);
+                }
+
+                // Загружаем существующие заказы для этого адреса+поставщика:
+                // прошлые — корректируют начальный сток, будущие — идут в simPending
+                const existingOrders = await this.ordersTableRepo.find({
+                    where: { address: code, supplier: supplierRole },
+                });
+                for (const order of existingOrders) {
+                    const delivDate = new Date(order.date);
+                    delivDate.setHours(0, 0, 0, 0);
+                    const dateStr = delivDate.toISOString().split('T')[0];
+                    const it = items.find(i => i.sku_id === order.product_id);
+                    if (!it) continue;
+                    const qtyOur = order.count * it.packMult;
+                    if (delivDate <= today) {
+                        const invDate = new Date(it.stockDate);
+                        invDate.setHours(0, 0, 0, 0);
+                        if (delivDate >= invDate) {
+                            stocks.set(it.sku_id, (stocks.get(it.sku_id) ?? 0) + qtyOur);
+                        }
+                    } else {
+                        if (!simPending.has(dateStr)) simPending.set(dateStr, new Map());
+                        simPending.get(dateStr)!.set(it.sku_id, (simPending.get(dateStr)!.get(it.sku_id) ?? 0) + qtyOur);
+                    }
+                }
+
+                // Запоминаем сток на день 0 для логов
+                const day0Stocks = new Map<number, number>(stocks);
 
                 // Накопленные базовые заказы до финализации: дата → sku_id → кол-во в упаковках поставщика
                 const accumulated = new Map<string, Map<number, number>>();
@@ -343,9 +378,9 @@ export class CalculationService {
                         }
                     }
 
-                    // 3. Суточный расход
+                    // 3. Суточный расход (разрешаем уход в минус — это реальный дефицит)
                     for (const item of items) {
-                        stocks.set(item.sku_id, Math.max(0, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption));
+                        stocks.set(item.sku_id, (stocks.get(item.sku_id) ?? 0) - item.dailyConsumption);
                     }
 
                     // 4. Проверяем, нужен ли заказ
@@ -365,12 +400,13 @@ export class CalculationService {
                             if (orderedDates.get(item.sku_id)!.has(delivDateStr)) continue;
                             orderedDates.get(item.sku_id)!.add(delivDateStr);
 
-                            const stockAtDeliv = Math.max(0, s - item.dailyConsumption * daysToDeliv);
+                            const stockAtDeliv = s - item.dailyConsumption * daysToDeliv;
                             const nextDeliv = this.getNextDeliveryAfter(suppSett.delivery_days, leadTime, nextOrderableDelivery);
                             const coverDays = nextDeliv ? Math.round((nextDeliv.getTime() - nextOrderableDelivery.getTime()) / 86400000) : 7;
                             const targetStock = item.nzVal + item.dailyConsumption * coverDays;
                             const orderQtyOur = Math.max(0, targetStock - stockAtDeliv);
-                            const orderQtySupplier = Math.ceil(orderQtyOur / item.packMult / item.orderMult) * item.orderMult;
+                            // packMult: наши единицы → единицы поставщика; orderMult: минимальный шаг заказа
+                            const orderQtySupplier = Math.ceil(orderQtyOur * item.packMult / item.orderMult) * item.orderMult;
 
                             if (orderQtySupplier > 0) {
                                 if (!accumulated.has(delivDateStr)) accumulated.set(delivDateStr, new Map());
@@ -395,7 +431,8 @@ export class CalculationService {
                 for (const item of items) {
                     const hadOrders = Array.from(accumulated.values()).some(m => m.has(item.sku_id));
                     if (!hadOrders) {
-                        logs.push({ level: 'info', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `Заказ не нужен — остаток ${item.initialStock.toFixed(1)} >= НЗ ${item.nzVal} на весь период` });
+                        const d0 = day0Stocks.get(item.sku_id) ?? 0;
+                        logs.push({ level: 'info', address: code, sku_id: item.sku_id, sku_name: item.skuName, message: `Заказ не нужен — остаток сегодня ~${d0.toFixed(1)} >= НЗ ${item.nzVal} на весь период` });
                     }
                 }
             }
