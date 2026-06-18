@@ -568,7 +568,6 @@ export class PersonalService {
             const lastReport = await this.managerLsReportRepository
                 .createQueryBuilder('r')
                 .where('r.store_hid = :storeHid', { storeHid })
-                .andWhere('r.manager_hid = :managerHid', { managerHid })
                 .orderBy('r.filled_at', 'DESC')
                 .getOne();
             lastReportMap.set(storeHid, lastReport?.filled_at || null);
