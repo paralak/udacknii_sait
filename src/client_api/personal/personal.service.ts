@@ -580,14 +580,28 @@ export class PersonalService {
         const stores: any[] = [];
         for (const storeHid of storeHidsWithPositions) {
             const storeNode = allHierarchy.find(h => h.id === storeHid);
+
+            const latestReport = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+
+            const reportStaffMap = new Map<number, any>();
+            if (latestReport) {
+                const rPositions: any[] = (latestReport.data as any)?.positions || [];
+                for (const rp of rPositions) {
+                    if (rp.id && rp.staff) reportStaffMap.set(rp.id, rp.staff);
+                }
+            }
+
             const positions = allPositions
                 .filter(p => p.hid === storeHid)
                 .map(p => {
                     const staff = p.lsid ? allLs.find(ls => ls.lsid === p.lsid) || null : null;
-                    const staffInfo = p.lsid
-                        ? allInfo.filter(i => i.lsid === p.lsid)
-                        : [];
-                    return { ...p, staff, staffInfo };
+                    const staffInfo = p.lsid ? allInfo.filter(i => i.lsid === p.lsid) : [];
+                    const reportStaff = reportStaffMap.get(p.id) || null;
+                    return { ...p, staff, staffInfo, reportStaff };
                 });
 
             stores.push({
@@ -599,18 +613,18 @@ export class PersonalService {
             });
         }
 
-        const pending = stores
-            .filter(s => !s.filledToday)
-            .sort((a, b) => {
-                if (!a.lastFilledAt && !b.lastFilledAt) return 0;
-                if (!a.lastFilledAt) return -1;
-                if (!b.lastFilledAt) return 1;
-                return new Date(a.lastFilledAt).getTime() - new Date(b.lastFilledAt).getTime();
-            });
+        stores.sort((a, b) => {
+            if (!a.filledToday && b.filledToday) return -1;
+            if (a.filledToday && !b.filledToday) return 1;
+            if (!a.lastFilledAt && !b.lastFilledAt) return 0;
+            if (!a.lastFilledAt) return -1;
+            if (!b.lastFilledAt) return 1;
+            return new Date(a.lastFilledAt).getTime() - new Date(b.lastFilledAt).getTime();
+        });
 
         return {
             status: 'success',
-            stores: pending,
+            stores,
             totalFilledToday: filledTodayHids.size,
             totalStores: storeHidsWithPositions.length,
         };
