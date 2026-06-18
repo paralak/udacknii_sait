@@ -587,11 +587,13 @@ export class PersonalService {
                 .orderBy('r.filled_at', 'DESC')
                 .getOne();
 
-            const reportStaffMap = new Map<number, any>();
+            const reportStaffMap = new Map<number, { lsid: string; staff: any }>();
             if (latestReport) {
                 const rPositions: any[] = (latestReport.data as any)?.positions || [];
                 for (const rp of rPositions) {
-                    if (rp.id && rp.staff) reportStaffMap.set(rp.id, rp.staff);
+                    if (rp.id && rp.lsid && rp.staff) {
+                        reportStaffMap.set(rp.id, { lsid: rp.lsid, staff: rp.staff });
+                    }
                 }
             }
 
@@ -600,7 +602,10 @@ export class PersonalService {
                 .map(p => {
                     const staff = p.lsid ? allLs.find(ls => ls.lsid === p.lsid) || null : null;
                     const staffInfo = p.lsid ? allInfo.filter(i => i.lsid === p.lsid) : [];
-                    const reportStaff = reportStaffMap.get(p.id) || null;
+                    const reportEntry = reportStaffMap.get(p.id);
+                    const reportStaff = (reportEntry && reportEntry.lsid === p.lsid)
+                        ? reportEntry.staff
+                        : null;
                     return { ...p, staff, staffInfo, reportStaff };
                 });
 
