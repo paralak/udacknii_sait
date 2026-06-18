@@ -183,6 +183,11 @@ export class PersonalController {
         return this.personalService.deleteLs(lsid, headers);
     }
 
+    @Get('manager/view-stores')
+    getViewStores(@Headers() headers: Record<string, string>) {
+        return this.personalService.getViewStores(headers);
+    }
+
     @Get('manager/stores')
     getManagerStores(@Headers() headers: Record<string, string>) {
         return this.personalService.getManagerStores(headers);

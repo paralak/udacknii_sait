@@ -403,6 +403,102 @@ export class PersonalService {
         return result;
     }
 
+    async getViewStores(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const managerHid: number = check.userId;
+        const flags = await this.flagsRepository.find({ where: { hid: managerHid } });
+        const flagValues = flags.map(f => f.flag);
+
+        if (!flagValues.includes('MANAGER') && !flagValues.includes('ADMIN')) {
+            return { status: 'error', message: 'Нет доступа' };
+        }
+
+        const allHierarchy = await this.hierarchyRepository.find();
+        let accessibleStoreHids: number[] = [];
+
+        if (flagValues.includes('ADMIN')) {
+            accessibleStoreHids = allHierarchy.filter(h => h.type === 'Store').map(h => h.id);
+        } else {
+            const tmStoreIds = flagValues
+                .filter(f => /^TM_\d+$/.test(f))
+                .map(f => parseInt(f.replace('TM_', '')));
+            if (tmStoreIds.length > 0) {
+                accessibleStoreHids = tmStoreIds;
+            } else {
+                const managerNode = allHierarchy.find(h => h.id === managerHid);
+                if (managerNode && managerNode.parent_id > 0) {
+                    const subtreeIds = this.getSubtreeIds(allHierarchy, managerNode.parent_id);
+                    accessibleStoreHids = allHierarchy
+                        .filter(h => h.type === 'Store' && subtreeIds.has(h.id))
+                        .map(h => h.id);
+                }
+                if (accessibleStoreHids.length === 0) {
+                    accessibleStoreHids = allHierarchy.filter(h => h.type === 'Store').map(h => h.id);
+                }
+            }
+        }
+
+        const allPositions = await this.personalPosRepository.find();
+        const allLs = await this.personalLsRepository.find();
+
+        const storeHidsWithPositions = [...new Set(
+            allPositions.filter(p => accessibleStoreHids.includes(p.hid)).map(p => p.hid)
+        )];
+
+        const stores: any[] = [];
+        for (const storeHid of storeHidsWithPositions) {
+            const storeNode = allHierarchy.find(h => h.id === storeHid);
+
+            const latestReport = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+
+            const storePositions = allPositions.filter(p => p.hid === storeHid);
+            const reportPositions: any[] = latestReport
+                ? ((latestReport.data as any)?.positions || [])
+                : [];
+
+            const positions = storePositions.map(pos => {
+                const reportPos = reportPositions.find((rp: any) => rp.id === pos.id);
+                const ls = pos.lsid ? allLs.find(l => l.lsid === pos.lsid) : null;
+                const staffInfo = reportPos?.staff ? {
+                    birthDate: reportPos.staff.birthDate || null,
+                    citizenship: reportPos.staff.citizenship || null,
+                    contractType: reportPos.staff.contractType || null,
+                    maritalStatus: reportPos.staff.maritalStatus || null,
+                    children: reportPos.staff.children || null,
+                    vacationStart: reportPos.staff.vacationStart || null,
+                    vacationEnd: reportPos.staff.vacationEnd || null,
+                    phone: reportPos.staff.phone || null,
+                    address: reportPos.staff.address || null,
+                    phoneBackup: reportPos.staff.phoneBackup || null,
+                    departureDate: reportPos.staff.departureDate || null,
+                } : null;
+
+                return {
+                    id: pos.id,
+                    name: pos.name,
+                    staffName: reportPos?.staff?.fio || ls?.fio || null,
+                    staffInfo,
+                };
+            });
+
+            stores.push({
+                hid: storeHid,
+                name: storeNode?.name || `Магазин ${storeHid}`,
+                lastFilledAt: latestReport?.filled_at || null,
+                positions,
+            });
+        }
+
+        stores.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        return { status: 'success', stores };
+    }
+
     async getManagerStores(headers: Record<string, string>) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
