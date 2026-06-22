@@ -403,6 +403,85 @@ export class PersonalService {
         return result;
     }
 
+    async getAdminManagerReport(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!myFlags.some(f => f.flag === 'ADMIN')) {
+            return { status: 'error', message: 'Нет доступа' };
+        }
+
+        const allHierarchy = await this.hierarchyRepository.find();
+        const allPositions = await this.personalPosRepository.find();
+        const allLs = await this.personalLsRepository.find();
+        const allFlags = await this.flagsRepository.find();
+
+        const managerHids = [...new Set(
+            allFlags.filter(f => f.flag === 'MANAGER').map(f => f.hid)
+        )];
+
+        const managers: any[] = [];
+        for (const managerHid of managerHids) {
+            const managerNode = allHierarchy.find(h => h.id === managerHid);
+            const managerFlagList = allFlags.filter(f => f.hid === managerHid);
+
+            const tmStoreIds = managerFlagList
+                .filter(f => /^TM_\d+$/.test(f.flag))
+                .map(f => parseInt(f.flag.replace('TM_', '')));
+
+            const storeHids = tmStoreIds.filter(hid =>
+                allPositions.some(p => p.hid === hid)
+            );
+
+            const stores: any[] = [];
+            for (const storeHid of storeHids) {
+                const storeNode = allHierarchy.find(h => h.id === storeHid);
+                const latestReport = await this.managerLsReportRepository
+                    .createQueryBuilder('r')
+                    .where('r.store_hid = :storeHid', { storeHid })
+                    .orderBy('r.filled_at', 'DESC')
+                    .getOne();
+
+                const reportPositions: any[] = latestReport
+                    ? ((latestReport.data as any)?.positions || [])
+                    : [];
+
+                const positions = allPositions
+                    .filter(p => p.hid === storeHid)
+                    .map(p => {
+                        const rp = reportPositions.find((r: any) => r.id === p.id);
+                        const ls = p.lsid ? allLs.find(l => l.lsid === p.lsid) : null;
+                        return {
+                            id: p.id,
+                            name: p.name,
+                            staffName: rp?.staff?.fio || ls?.fio || null,
+                        };
+                    });
+
+                stores.push({
+                    hid: storeHid,
+                    name: storeNode?.name || `Магазин ${storeHid}`,
+                    lastFilledAt: latestReport?.filled_at || null,
+                    positions,
+                });
+            }
+
+            stores.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
+            managers.push({
+                hid: managerHid,
+                name: managerNode?.name || `Менеджер ${managerHid}`,
+                totalStores: storeHids.length,
+                filledStores: stores.filter(s => s.lastFilledAt).length,
+                stores,
+            });
+        }
+
+        managers.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        return { status: 'success', managers, generatedAt: new Date() };
+    }
+
     async getViewStores(headers: Record<string, string>) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
