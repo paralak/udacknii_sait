@@ -479,8 +479,9 @@ export class PersonalService {
             });
         }
 
-        managers.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-        return { status: 'success', managers, generatedAt: new Date() };
+        const managersWithStores = managers.filter(m => m.totalStores > 0);
+        managersWithStores.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        return { status: 'success', managers: managersWithStores, generatedAt: new Date() };
     }
 
     async getViewStores(headers: Record<string, string>) {
