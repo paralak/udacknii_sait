@@ -456,6 +456,7 @@ export class PersonalService {
                             id: p.id,
                             name: p.name,
                             staffName: rp?.staff?.fio || ls?.fio || null,
+                            staffData: rp?.staff || null,
                         };
                     });
 
