@@ -301,7 +301,7 @@ export class ClientAPIService {
       }
       const newToken = Math.random().toString(36).substring(2, 18);
       const expiredDate = new Date();
-      expiredDate.setHours(expiredDate.getHours() + 72);
+      expiredDate.setFullYear(expiredDate.getFullYear() + 1);
       const tokenEntity = this.tokenRepository.create({
         token: newToken,
         user_id: user.hid,
