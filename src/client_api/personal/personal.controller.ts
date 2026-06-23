@@ -7,6 +7,13 @@ import { PersonalInfoDTO } from 'src/db/dto/personal_info.dto';
 import { PersonalPosDTO } from 'src/db/dto/personal_pos.dto';
 import { PersonalLsDTO } from 'src/db/dto/personal_ls.dto';
 
+interface MulterFile {
+    originalname: string;
+    mimetype: string;
+    size: number;
+    buffer: Buffer;
+}
+
 @Controller('client_api/personal')
 export class PersonalController {
     constructor(private readonly personalService: PersonalService) {
@@ -230,7 +237,7 @@ export class PersonalController {
     @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
     uploadVacationSample(
         @Headers() headers: Record<string, string>,
-        @UploadedFile() file: Express.Multer.File,
+        @UploadedFile() file: MulterFile,
     ) {
         if (!file) return { status: 'error', message: 'Файл не загружен' };
         return this.personalService.uploadVacationSample(headers, file);
@@ -241,7 +248,7 @@ export class PersonalController {
     submitVacationApplication(
         @Headers() headers: Record<string, string>,
         @Body() body: { employee_lsid: string; comment?: string },
-        @UploadedFile() file: Express.Multer.File | undefined,
+        @UploadedFile() file: MulterFile | undefined,
     ) {
         if (!body.employee_lsid) return { status: 'error', message: 'Не указан сотрудник' };
         return this.personalService.submitVacationApplication(
