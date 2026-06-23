@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Personal_ls_info } from 'src/db/personal/personal_ls_info.entity';
 import { Personal_pos } from 'src/db/personal/personal_pos.entity';
 import { Personal_ls } from 'src/db/personal/personal_ls.entity';
 import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
+import { VacationApplication } from 'src/db/personal/vacation_application.entity';
 import { Token } from 'src/db/token.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Flags } from 'src/db/flags.entity';
@@ -26,6 +29,9 @@ export class PersonalService {
 
         @InjectRepository(ManagerLsReport)
         private managerLsReportRepository: Repository<ManagerLsReport>,
+
+        @InjectRepository(VacationApplication)
+        private vacationApplicationRepository: Repository<VacationApplication>,
 
         @InjectRepository(Token)
         private tokenRepository: Repository<Token>,
@@ -871,5 +877,185 @@ export class PersonalService {
             status: 'success',
             message: 'Линейный сотрудник удален',
         };
+    }
+
+    private parseRussianDate(dateStr: string | null | undefined): Date | null {
+        if (!dateStr || !dateStr.trim()) return null;
+        const m = dateStr.trim().match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+        if (m) return new Date(`${m[3]}-${m[2]}-${m[1]}`);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) return new Date(dateStr.trim());
+        return null;
+    }
+
+    async getUpcomingVacations(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        const isAdmin = myFlags.some(f => f.flag === 'ADMIN');
+        const isManager = myFlags.some(f => f.flag === 'MANAGER');
+        if (!isAdmin && !isManager) return { status: 'error', message: 'Нет доступа' };
+
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        let storeHids: number[] = [];
+        if (isAdmin) {
+            const rows = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .select('DISTINCT r.store_hid', 'hid')
+                .getRawMany();
+            storeHids = rows.map((r: any) => Number(r.hid));
+        } else {
+            storeHids = myFlags
+                .filter(f => /^TM_\d+$/.test(f.flag))
+                .map(f => parseInt(f.flag.replace('TM_', '')));
+        }
+
+        const allHierarchy = await this.hierarchyRepository.find();
+        const vacations: any[] = [];
+
+        for (const storeHid of storeHids) {
+            const latestReport = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+            if (!latestReport) continue;
+
+            const storeName = allHierarchy.find(h => h.id === storeHid)?.name || `Магазин ${storeHid}`;
+            const positions: any[] = (latestReport.data as any)?.positions || [];
+
+            for (const pos of positions) {
+                if (!pos.lsid || !pos.staff) continue;
+                for (const n of [1, 2, 3]) {
+                    const startStr: string | undefined = pos.staff[`vacation${n}Start`];
+                    const endStr: string | undefined = pos.staff[`vacation${n}End`];
+                    if (!startStr && !endStr) continue;
+                    const startDate = this.parseRussianDate(startStr);
+                    const endDate = this.parseRussianDate(endStr);
+                    if (endDate && endDate < now) continue;
+                    if (!endDate && startDate && startDate < now) continue;
+                    vacations.push({
+                        lsid: pos.lsid,
+                        fio: pos.staff.fio || pos.name || '',
+                        positionName: pos.name,
+                        storeName,
+                        storeHid,
+                        vacationStart: startStr || null,
+                        vacationEnd: endStr || null,
+                        period: n,
+                        _sortTs: startDate?.getTime() ?? Number.MAX_SAFE_INTEGER,
+                    });
+                }
+            }
+        }
+
+        vacations.sort((a, b) => a._sortTs - b._sortTs);
+        return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v) };
+    }
+
+    async getMyStaffForVacations(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        const isAdmin = myFlags.some(f => f.flag === 'ADMIN');
+        const isManager = myFlags.some(f => f.flag === 'MANAGER');
+        if (!isAdmin && !isManager) return { status: 'error', message: 'Нет доступа' };
+
+        const allHierarchy = await this.hierarchyRepository.find();
+        const allPositions = await this.personalPosRepository.find();
+        const allLs = await this.personalLsRepository.find();
+
+        let storeHids: number[] = [];
+        if (isAdmin) {
+            storeHids = [...new Set(allPositions.map(p => p.hid))];
+        } else {
+            storeHids = myFlags
+                .filter(f => /^TM_\d+$/.test(f.flag))
+                .map(f => parseInt(f.flag.replace('TM_', '')));
+        }
+
+        const seen = new Set<string>();
+        const employees: any[] = [];
+        for (const storeHid of storeHids) {
+            const storeName = allHierarchy.find(h => h.id === storeHid)?.name || `Магазин ${storeHid}`;
+            const positions = allPositions.filter(p => p.hid === storeHid && p.lsid);
+            for (const pos of positions) {
+                if (seen.has(pos.lsid)) continue;
+                seen.add(pos.lsid);
+                const ls = allLs.find(l => l.lsid === pos.lsid);
+                if (!ls) continue;
+                employees.push({ lsid: pos.lsid, fio: ls.fio, positionName: pos.name, storeName, storeHid });
+            }
+        }
+
+        employees.sort((a, b) => (a.fio || '').localeCompare(b.fio || '', 'ru'));
+        return { status: 'success', employees };
+    }
+
+    async getVacationSample() {
+        const uploadsDir = process.env.UPLOADS_DIR ?? '/mnt/shared/uploads';
+        let filename: string | null = null;
+        if (fs.existsSync(uploadsDir)) {
+            const files = fs.readdirSync(uploadsDir) as string[];
+            filename = files.find(f => f.startsWith('vacation_sample.')) ?? null;
+        }
+        return { status: 'success', filename };
+    }
+
+    async uploadVacationSample(
+        headers: Record<string, string>,
+        file: { originalname: string; buffer: Buffer },
+    ) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!myFlags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+
+        const ext = path.extname(file.originalname).toLowerCase();
+        const allowed = ['.pdf', '.jpg', '.jpeg', '.png', '.docx', '.doc'];
+        if (!allowed.includes(ext)) return { status: 'error', message: 'Недопустимый формат файла' };
+
+        const uploadsDir = process.env.UPLOADS_DIR ?? '/mnt/shared/uploads';
+        if (fs.existsSync(uploadsDir)) {
+            (fs.readdirSync(uploadsDir) as string[])
+                .filter(f => f.startsWith('vacation_sample.'))
+                .forEach(f => fs.unlinkSync(path.join(uploadsDir, f)));
+        }
+        const filename = `vacation_sample${ext}`;
+        fs.writeFileSync(path.join(uploadsDir, filename), file.buffer);
+        return { status: 'success', filename };
+    }
+
+    async submitVacationApplication(
+        headers: Record<string, string>,
+        employeeLsid: string,
+        comment: string | null,
+        file: { originalname: string; buffer: Buffer } | null,
+    ) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const uploadsDir = process.env.UPLOADS_DIR ?? '/mnt/shared/uploads';
+        let fileUrl: string | null = null;
+        if (file) {
+            const ext = path.extname(file.originalname).toLowerCase();
+            const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.pdf'];
+            if (!allowed.includes(ext)) return { status: 'error', message: 'Недопустимый формат файла' };
+            const filename = `vacation_app_${Date.now()}_${employeeLsid}${ext}`;
+            fs.writeFileSync(path.join(uploadsDir, filename), file.buffer);
+            fileUrl = filename;
+        }
+
+        const app = this.vacationApplicationRepository.create({
+            senderHid: check.userId,
+            employeeLsid,
+            fileUrl,
+            comment: comment || null,
+        });
+        await this.vacationApplicationRepository.save(app);
+        return { status: 'success' };
     }
 }

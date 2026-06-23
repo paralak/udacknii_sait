@@ -1,6 +1,8 @@
-import {Body, Controller, Get, Head, Post, Query} from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { PersonalService } from './personal.service';
-import {Headers} from '@nestjs/common';
+import { Headers } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { PersonalInfoDTO } from 'src/db/dto/personal_info.dto';
 import { PersonalPosDTO } from 'src/db/dto/personal_pos.dto';
 import { PersonalLsDTO } from 'src/db/dto/personal_ls.dto';
@@ -207,6 +209,47 @@ export class PersonalController {
             return { status: 'error', message: 'Неверные данные' };
         }
         return this.personalService.saveManagerStore(body.store_hid, body.positions, headers);
+    }
+
+    @Get('vacations/upcoming')
+    getUpcomingVacations(@Headers() headers: Record<string, string>) {
+        return this.personalService.getUpcomingVacations(headers);
+    }
+
+    @Get('vacations/employees')
+    getMyStaffForVacations(@Headers() headers: Record<string, string>) {
+        return this.personalService.getMyStaffForVacations(headers);
+    }
+
+    @Get('vacations/sample')
+    getVacationSample() {
+        return this.personalService.getVacationSample();
+    }
+
+    @Post('vacations/upload-sample')
+    @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+    uploadVacationSample(
+        @Headers() headers: Record<string, string>,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) return { status: 'error', message: 'Файл не загружен' };
+        return this.personalService.uploadVacationSample(headers, file);
+    }
+
+    @Post('vacations/submit')
+    @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+    submitVacationApplication(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { employee_lsid: string; comment?: string },
+        @UploadedFile() file: Express.Multer.File | undefined,
+    ) {
+        if (!body.employee_lsid) return { status: 'error', message: 'Не указан сотрудник' };
+        return this.personalService.submitVacationApplication(
+            headers,
+            body.employee_lsid,
+            body.comment || null,
+            file || null,
+        );
     }
 
 }
