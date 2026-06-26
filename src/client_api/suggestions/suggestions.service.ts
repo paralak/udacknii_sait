@@ -1,6 +1,6 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { Suggestion } from 'src/db/suggestion.entity';
 import { SuggestionReply } from 'src/db/suggestion_reply.entity';
@@ -10,7 +10,7 @@ import { Hierarchy } from 'src/db/hierarchy.entity';
 import { PushSubscription } from 'src/db/push_subscription.entity';
 
 @Injectable()
-export class SuggestionsService implements OnModuleInit {
+export class SuggestionsService {
   constructor(
     @InjectRepository(Suggestion)
     private readonly suggestionRepository: Repository<Suggestion>,
@@ -24,21 +24,7 @@ export class SuggestionsService implements OnModuleInit {
     private readonly hierarchyRepository: Repository<Hierarchy>,
     @InjectRepository(PushSubscription)
     private readonly pushSubscriptionRepository: Repository<PushSubscription>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
   ) {}
-
-  async onModuleInit() {
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS suggestion_replies (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        suggestion_id INT NOT NULL,
-        admin_hid INT NOT NULL,
-        text TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  }
 
   private extractToken(headers: Record<string, string>): string | null {
     const cookie = headers['cookie'];
