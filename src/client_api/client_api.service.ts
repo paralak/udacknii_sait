@@ -41,15 +41,15 @@ export class ClientAPIService {
           resp.flags.includes('HIERARCHY') || resp.flags.includes('ADMIN');
 
       if (hasHierarchyAccess) {
-          // Полная иерархия: все департаменты, подразделения и сотрудники
+          // Полная иерархия: все департаменты, подразделения, магазины и сотрудники
           return this.itemsRepository.find({
-              where: { type: In(['Department', 'Company', 'Person']) },
+              where: { type: In(['Department', 'Company', 'Store', 'Person']) },
               order: { sort_order: 'ASC', id: 'ASC' },
           });
       } else {
-          // Только структура департаментов и подразделений (без сотрудников)
+          // Только структура департаментов, подразделений и магазинов (без сотрудников)
           return this.itemsRepository.find({
-              where: { type: In(['Department', 'Company']) },
+              where: { type: In(['Department', 'Company', 'Store']) },
               order: { sort_order: 'ASC', id: 'ASC' },
           });
       }
