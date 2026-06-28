@@ -22,4 +22,10 @@ export class VacationApplication {
 
     @Column({ name: 'accountant_comment', type: 'text', nullable: true })
     accountantComment: string | null;
+
+    @Column({ name: 'original_received', type: 'tinyint', default: 0 })
+    originalReceived: boolean;
+
+    @Column({ name: 'original_received_at', type: 'datetime', nullable: true })
+    originalReceivedAt: Date | null;
 }
