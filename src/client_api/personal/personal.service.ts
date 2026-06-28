@@ -905,11 +905,11 @@ export class PersonalService {
                 for (const n of [1, 2, 3]) {
                     const startStr: string | undefined = pos.staff[`vacation${n}Start`];
                     const endStr: string | undefined = pos.staff[`vacation${n}End`];
-                    if (!startStr && !endStr) continue;
+                    if (!startStr || !endStr) continue;
                     const startDate = this.parseRussianDate(startStr);
                     const endDate = this.parseRussianDate(endStr);
-                    if (endDate && endDate < now) continue;
-                    if (!endDate && startDate && startDate < now) continue;
+                    if (!startDate || !endDate) continue;
+                    if (endDate < now) continue;
                     vacations.push({
                         lsid: pos.lsid,
                         fio: pos.staff.fio || pos.name || '',
@@ -1012,12 +1012,12 @@ export class PersonalService {
                 for (const n of [1, 2, 3]) {
                     const startStr: string | undefined = pos.staff[`vacation${n}Start`];
                     const endStr: string | undefined = pos.staff[`vacation${n}End`];
-                    if (!startStr && !endStr) continue;
+                    if (!startStr || !endStr) continue;
                     const startDate = this.parseRussianDate(startStr);
                     const endDate = this.parseRussianDate(endStr);
-                    if (!startDate && !endDate) continue;
-                    if (fromDate && endDate && endDate < fromDate) continue;
-                    if (toDate && startDate && startDate > toDate) continue;
+                    if (!startDate || !endDate) continue;
+                    if (fromDate && endDate < fromDate) continue;
+                    if (toDate && startDate > toDate) continue;
 
                     // Find best matching application: most recent one submitted before vacation start
                     const matchingApp = startDate
