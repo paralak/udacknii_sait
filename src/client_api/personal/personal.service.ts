@@ -409,6 +409,30 @@ export class PersonalService {
         return result;
     }
 
+    private resolveAccessibleStoreHids(
+        flagValues: string[],
+        allHierarchy: Hierarchy[],
+        managerHid: number,
+    ): number[] {
+        if (flagValues.includes('ADMIN')) {
+            return allHierarchy.filter(h => h.type === 'Store').map(h => h.id);
+        }
+        const tmStoreIds = flagValues
+            .filter(f => /^TM_\d+$/.test(f))
+            .map(f => parseInt(f.replace('TM_', '')));
+        if (tmStoreIds.length > 0) return tmStoreIds;
+
+        const managerNode = allHierarchy.find(h => h.id === managerHid);
+        if (managerNode && managerNode.parent_id > 0) {
+            const subtreeIds = this.getSubtreeIds(allHierarchy, managerNode.parent_id);
+            const fromTree = allHierarchy
+                .filter(h => h.type === 'Store' && subtreeIds.has(h.id))
+                .map(h => h.id);
+            if (fromTree.length > 0) return fromTree;
+        }
+        return allHierarchy.filter(h => h.type === 'Store').map(h => h.id);
+    }
+
     async getAdminManagerReport(headers: Record<string, string>) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
@@ -503,29 +527,7 @@ export class PersonalService {
         }
 
         const allHierarchy = await this.hierarchyRepository.find();
-        let accessibleStoreHids: number[] = [];
-
-        if (flagValues.includes('ADMIN')) {
-            accessibleStoreHids = allHierarchy.filter(h => h.type === 'Store').map(h => h.id);
-        } else {
-            const tmStoreIds = flagValues
-                .filter(f => /^TM_\d+$/.test(f))
-                .map(f => parseInt(f.replace('TM_', '')));
-            if (tmStoreIds.length > 0) {
-                accessibleStoreHids = tmStoreIds;
-            } else {
-                const managerNode = allHierarchy.find(h => h.id === managerHid);
-                if (managerNode && managerNode.parent_id > 0) {
-                    const subtreeIds = this.getSubtreeIds(allHierarchy, managerNode.parent_id);
-                    accessibleStoreHids = allHierarchy
-                        .filter(h => h.type === 'Store' && subtreeIds.has(h.id))
-                        .map(h => h.id);
-                }
-                if (accessibleStoreHids.length === 0) {
-                    accessibleStoreHids = allHierarchy.filter(h => h.type === 'Store').map(h => h.id);
-                }
-            }
-        }
+        const accessibleStoreHids = this.resolveAccessibleStoreHids(flagValues, allHierarchy, managerHid);
 
         const allPositions = await this.personalPosRepository.find();
         const allLs = await this.personalLsRepository.find();
@@ -599,35 +601,7 @@ export class PersonalService {
         }
 
         const allHierarchy = await this.hierarchyRepository.find();
-        let accessibleStoreHids: number[] = [];
-
-        if (flagValues.includes('ADMIN')) {
-            accessibleStoreHids = allHierarchy
-                .filter(h => h.type === 'Store')
-                .map(h => h.id);
-        } else {
-            const tmStoreIds = flagValues
-                .filter(f => /^TM_\d+$/.test(f))
-                .map(f => parseInt(f.replace('TM_', '')));
-
-            if (tmStoreIds.length > 0) {
-                accessibleStoreHids = tmStoreIds;
-            } else {
-                // MANAGER without TM flags: try hierarchy traversal, fall back to all stores
-                const managerNode = allHierarchy.find(h => h.id === managerHid);
-                if (managerNode && managerNode.parent_id > 0) {
-                    const subtreeIds = this.getSubtreeIds(allHierarchy, managerNode.parent_id);
-                    accessibleStoreHids = allHierarchy
-                        .filter(h => h.type === 'Store' && subtreeIds.has(h.id))
-                        .map(h => h.id);
-                }
-                if (accessibleStoreHids.length === 0) {
-                    accessibleStoreHids = allHierarchy
-                        .filter(h => h.type === 'Store')
-                        .map(h => h.id);
-                }
-            }
-        }
+        const accessibleStoreHids = this.resolveAccessibleStoreHids(flagValues, allHierarchy, managerHid);
 
         const allPositions = await this.personalPosRepository.find();
         const storeHidsWithPositions = [...new Set(
@@ -984,20 +958,11 @@ export class PersonalService {
         const now = new Date();
         now.setHours(0, 0, 0, 0);
 
-        let storeHids: number[] = [];
-        if (isAdmin) {
-            const rows = await this.managerLsReportRepository
-                .createQueryBuilder('r')
-                .select('DISTINCT r.store_hid', 'hid')
-                .getRawMany();
-            storeHids = rows.map((r: any) => Number(r.hid));
-        } else {
-            storeHids = myFlags
-                .filter(f => /^TM_\d+$/.test(f.flag))
-                .map(f => parseInt(f.flag.replace('TM_', '')));
-        }
+        const allHierarchyForGantt = await this.hierarchyRepository.find();
+        const flagValues = myFlags.map(f => f.flag);
+        const storeHids = this.resolveAccessibleStoreHids(flagValues, allHierarchyForGantt, check.userId);
 
-        const allHierarchy = await this.hierarchyRepository.find();
+        const allHierarchy = allHierarchyForGantt;
         const vacations: any[] = [];
         const allLsids = new Set<string>();
 
@@ -1072,6 +1037,7 @@ export class PersonalService {
                         period: n,
                         docStatus,
                         scanSentAt: matchingApp?.sentAt ? new Date(matchingApp.sentAt).toISOString() : null,
+                        scanFileUrl: matchingApp?.fileUrl ?? null,
                         originalReceived: matchingApp?.originalReceived ?? false,
                         originalReceivedAt: matchingApp?.originalReceivedAt ? new Date(matchingApp.originalReceivedAt).toISOString() : null,
                         applicationId: matchingApp?.id ?? null,
