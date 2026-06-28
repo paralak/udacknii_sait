@@ -227,6 +227,15 @@ export class PersonalController {
         return this.personalService.getVacationsForGantt(headers, from, to);
     }
 
+    @Post('vacations/mark-original')
+    markOriginalReceived(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { lsid: string; received: boolean },
+    ) {
+        if (!body.lsid) return { status: 'error', message: 'Не указан сотрудник' };
+        return this.personalService.markOriginalReceived(headers, body.lsid, !!body.received);
+    }
+
     @Get('vacations/upcoming')
     getUpcomingVacations(@Headers() headers: Record<string, string>) {
         return this.personalService.getUpcomingVacations(headers);

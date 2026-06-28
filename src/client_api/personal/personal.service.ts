@@ -955,6 +955,21 @@ export class PersonalService {
         return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v) };
     }
 
+    private computeVacationStatus(
+        startDate: Date | null,
+        app: VacationApplication | null,
+        now: Date,
+    ): 'done' | 'waiting_original' | 'overdue' | 'no_scan' {
+        const DEADLINE_DAYS = 14;
+        const deadline = startDate ? new Date(startDate.getTime() - DEADLINE_DAYS * 86400000) : null;
+        const hasScan = !!(app?.fileUrl);
+
+        if (hasScan && app!.originalReceived) return 'done';
+        if (hasScan) return 'waiting_original';
+        if (deadline && now >= deadline) return 'overdue';
+        return 'no_scan';
+    }
+
     async getVacationsForGantt(headers: Record<string, string>, from?: string, to?: string) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
@@ -966,6 +981,8 @@ export class PersonalService {
 
         const fromDate = from ? new Date(from) : null;
         const toDate = to ? new Date(to) : null;
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
 
         let storeHids: number[] = [];
         if (isAdmin) {
@@ -982,6 +999,36 @@ export class PersonalService {
 
         const allHierarchy = await this.hierarchyRepository.find();
         const vacations: any[] = [];
+        const allLsids = new Set<string>();
+
+        // First pass: collect all lsids
+        for (const storeHid of storeHids) {
+            const latestReport = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+            if (!latestReport) continue;
+            const positions: any[] = (latestReport.data as any)?.positions || [];
+            for (const pos of positions) {
+                if (pos.lsid) allLsids.add(pos.lsid);
+            }
+        }
+
+        // Load all vacation applications for relevant lsids
+        const appsMap = new Map<string, VacationApplication[]>();
+        if (allLsids.size > 0) {
+            const lsidArr = [...allLsids];
+            const apps = await this.vacationApplicationRepository
+                .createQueryBuilder('a')
+                .where('a.employee_lsid IN (:...lsids)', { lsids: lsidArr })
+                .orderBy('a.sent_at', 'DESC')
+                .getMany();
+            for (const app of apps) {
+                if (!appsMap.has(app.employeeLsid)) appsMap.set(app.employeeLsid, []);
+                appsMap.get(app.employeeLsid)!.push(app);
+            }
+        }
 
         for (const storeHid of storeHids) {
             const latestReport = await this.managerLsReportRepository
@@ -996,6 +1043,7 @@ export class PersonalService {
 
             for (const pos of positions) {
                 if (!pos.lsid || !pos.staff) continue;
+                const employeeApps = appsMap.get(pos.lsid) || [];
                 for (const n of [1, 2, 3]) {
                     const startStr: string | undefined = pos.staff[`vacation${n}Start`];
                     const endStr: string | undefined = pos.staff[`vacation${n}End`];
@@ -1003,9 +1051,16 @@ export class PersonalService {
                     const startDate = this.parseRussianDate(startStr);
                     const endDate = this.parseRussianDate(endStr);
                     if (!startDate && !endDate) continue;
-                    // filter by range if provided
                     if (fromDate && endDate && endDate < fromDate) continue;
                     if (toDate && startDate && startDate > toDate) continue;
+
+                    // Find best matching application: most recent one submitted before vacation start
+                    const matchingApp = startDate
+                        ? employeeApps.find(a => new Date(a.sentAt) <= startDate) ?? employeeApps[0] ?? null
+                        : employeeApps[0] ?? null;
+
+                    const docStatus = this.computeVacationStatus(startDate, matchingApp, now);
+
                     vacations.push({
                         lsid: pos.lsid,
                         fio: pos.staff.fio || pos.name || '',
@@ -1015,6 +1070,11 @@ export class PersonalService {
                         vacationStart: startStr || null,
                         vacationEnd: endStr || null,
                         period: n,
+                        docStatus,
+                        scanSentAt: matchingApp?.sentAt ? new Date(matchingApp.sentAt).toISOString() : null,
+                        originalReceived: matchingApp?.originalReceived ?? false,
+                        originalReceivedAt: matchingApp?.originalReceivedAt ? new Date(matchingApp.originalReceivedAt).toISOString() : null,
+                        applicationId: matchingApp?.id ?? null,
                         _sortTs: startDate?.getTime() ?? Number.MAX_SAFE_INTEGER,
                     });
                 }
@@ -1023,6 +1083,30 @@ export class PersonalService {
 
         vacations.sort((a, b) => a._sortTs - b._sortTs);
         return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v) };
+    }
+
+    async markOriginalReceived(headers: Record<string, string>, lsid: string, received: boolean) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        const isAdmin = myFlags.some(f => f.flag === 'ADMIN');
+        if (!isAdmin) return { status: 'error', message: 'Нет доступа' };
+
+        // Find the latest application for this employee that has a file
+        const app = await this.vacationApplicationRepository
+            .createQueryBuilder('a')
+            .where('a.employee_lsid = :lsid', { lsid })
+            .andWhere('a.file_url IS NOT NULL')
+            .orderBy('a.sent_at', 'DESC')
+            .getOne();
+
+        if (!app) return { status: 'error', message: 'Заявление не найдено' };
+
+        app.originalReceived = received;
+        app.originalReceivedAt = received ? new Date() : null;
+        await this.vacationApplicationRepository.save(app);
+        return { status: 'success' };
     }
 
     async getMyStaffForVacations(headers: Record<string, string>) {
