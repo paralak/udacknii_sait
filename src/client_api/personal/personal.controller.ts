@@ -218,6 +218,15 @@ export class PersonalController {
         return this.personalService.saveManagerStore(body.store_hid, body.positions, headers);
     }
 
+    @Get('vacations/gantt')
+    getVacationsForGantt(
+        @Headers() headers: Record<string, string>,
+        @Query('from') from?: string,
+        @Query('to') to?: string,
+    ) {
+        return this.personalService.getVacationsForGantt(headers, from, to);
+    }
+
     @Get('vacations/upcoming')
     getUpcomingVacations(@Headers() headers: Record<string, string>) {
         return this.personalService.getUpcomingVacations(headers);

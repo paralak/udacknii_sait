@@ -955,6 +955,76 @@ export class PersonalService {
         return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v) };
     }
 
+    async getVacationsForGantt(headers: Record<string, string>, from?: string, to?: string) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        const isAdmin = myFlags.some(f => f.flag === 'ADMIN');
+        const isManager = myFlags.some(f => f.flag === 'MANAGER');
+        if (!isAdmin && !isManager) return { status: 'error', message: 'Нет доступа' };
+
+        const fromDate = from ? new Date(from) : null;
+        const toDate = to ? new Date(to) : null;
+
+        let storeHids: number[] = [];
+        if (isAdmin) {
+            const rows = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .select('DISTINCT r.store_hid', 'hid')
+                .getRawMany();
+            storeHids = rows.map((r: any) => Number(r.hid));
+        } else {
+            storeHids = myFlags
+                .filter(f => /^TM_\d+$/.test(f.flag))
+                .map(f => parseInt(f.flag.replace('TM_', '')));
+        }
+
+        const allHierarchy = await this.hierarchyRepository.find();
+        const vacations: any[] = [];
+
+        for (const storeHid of storeHids) {
+            const latestReport = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+            if (!latestReport) continue;
+
+            const storeName = allHierarchy.find(h => h.id === storeHid)?.name || `Магазин ${storeHid}`;
+            const positions: any[] = (latestReport.data as any)?.positions || [];
+
+            for (const pos of positions) {
+                if (!pos.lsid || !pos.staff) continue;
+                for (const n of [1, 2, 3]) {
+                    const startStr: string | undefined = pos.staff[`vacation${n}Start`];
+                    const endStr: string | undefined = pos.staff[`vacation${n}End`];
+                    if (!startStr && !endStr) continue;
+                    const startDate = this.parseRussianDate(startStr);
+                    const endDate = this.parseRussianDate(endStr);
+                    if (!startDate && !endDate) continue;
+                    // filter by range if provided
+                    if (fromDate && endDate && endDate < fromDate) continue;
+                    if (toDate && startDate && startDate > toDate) continue;
+                    vacations.push({
+                        lsid: pos.lsid,
+                        fio: pos.staff.fio || pos.name || '',
+                        positionName: pos.name,
+                        storeName,
+                        storeHid,
+                        vacationStart: startStr || null,
+                        vacationEnd: endStr || null,
+                        period: n,
+                        _sortTs: startDate?.getTime() ?? Number.MAX_SAFE_INTEGER,
+                    });
+                }
+            }
+        }
+
+        vacations.sort((a, b) => a._sortTs - b._sortTs);
+        return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v) };
+    }
+
     async getMyStaffForVacations(headers: Record<string, string>) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
