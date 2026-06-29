@@ -2,11 +2,11 @@ import {Injectable} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Exclusion, In, Repository } from 'typeorm';
 import { Hierarchy } from 'src/db/hierarchy.entity';
-import { Token } from 'src/db/token.entity';
 import { Addresses } from 'src/db/addresses.entity';
 import { Login } from 'src/db/login.entity';
 import { Flags } from 'src/db/flags.entity';
 import { UserProfile } from 'src/db/user_profile.entity';
+import { signJwt, verifyJwt } from 'src/auth/jwt.util';
 
 
 @Injectable()
@@ -14,8 +14,6 @@ export class ClientAPIService {
     constructor (
         @InjectRepository(Hierarchy)
         private readonly itemsRepository: Repository<Hierarchy>,
-        @InjectRepository(Token)
-        private readonly tokenRepository: Repository<Token>,
         @InjectRepository(Addresses)
         private readonly addressesRepository: Repository<Addresses>,
         @InjectRepository(Login)
@@ -56,50 +54,18 @@ export class ClientAPIService {
   }
 
     async checkToken(tokenValue: string) {
-    // Ищем токен по значению (не по id)
-    const token = await this.tokenRepository.findOne({
-      where: { token: tokenValue },
-    });
-
-    // 1. Токен не существует
-    if (!token) {
-      return {
-        status: 'not_found',
-        message: 'Токен не найден',
-      };
+    const payload = verifyJwt(tokenValue);
+    if (!payload) {
+      return { status: 'not_found', message: 'Токен не найден или истёк' };
     }
-
-    const now = new Date();
-    const expiredDate = new Date(token.expired);
-
-    // 2. Токен истёк
-    if (expiredDate < now) {
-      return {
-        status: 'expired',
-        message: 'Токен истёк',
-        expiredAt: token.expired,
-      };
-    }
-
-    const hidObj = this.itemsRepository.findOne({
-        where:{
-            id:token.user_id,
-        }
-    })
-    // так же получаем флаги для данного пользователя в виде массива строк
-    const flags = await this.flagsRepository.find({
-        where: {
-            hid: token.user_id,
-        },
-    });
-    // 3. Токен верен
+    const hidObj = this.itemsRepository.findOne({ where: { id: payload.sub } });
+    const flags = await this.flagsRepository.find({ where: { hid: payload.sub } });
     return {
         status: 'valid',
         message: 'Токен действителен',
-        userId: token.user_id,
+        userId: payload.sub,
         hidObj,
         flags: flags.map((f) => f.flag),
-        expiresAt: token.expired,
     };
   }
 
@@ -299,19 +265,11 @@ export class ClientAPIService {
       if (!user) {
         return { status: 'error', message: 'Неверный логин или пароль' };
       }
-      const newToken = Math.random().toString(36).substring(2, 18);
-      const expiredDate = new Date();
-      expiredDate.setFullYear(expiredDate.getFullYear() + 1);
-      const tokenEntity = this.tokenRepository.create({
-        token: newToken,
-        user_id: user.hid,
-        expired: expiredDate,
-      });
-      await this.tokenRepository.save(tokenEntity);
+      const token = signJwt(user.hid);
       return {
         status: 'success',
         message: 'Успешный вход',
-        token: newToken,
+        token,
         userId: user.hid,
       };
     } catch (err: any) {

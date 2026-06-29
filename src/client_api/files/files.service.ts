@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -17,30 +17,18 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR ?? '/mnt/shared/uploads';
 
 @Injectable()
 export class FilesService {
-  constructor(
-    @InjectRepository(Token)
-    private readonly tokenRepository: Repository<Token>,
-  ) {}
-
-  private extractToken(headers: Record<string, string>): string | null {
-    const cookie = headers['cookie'];
-    if (!cookie) return null;
-    const match = cookie.match(/auth_token=([^;]+)/);
-    return match ? match[1] : null;
-  }
+  constructor() {}
 
   private async resolveHid(authToken: string): Promise<number | null> {
-    const token = await this.tokenRepository.findOne({ where: { token: authToken } });
-    if (!token) return null;
-    if (new Date(token.expired) < new Date()) return null;
-    return token.user_id;
+    const payload = verifyJwt(authToken);
+    return payload ? payload.sub : null;
   }
 
   async uploadAvatar(
     headers: Record<string, string>,
     file: UploadedMulterFile,
   ) {
-    const authToken = this.extractToken(headers);
+    const authToken = extractTokenFromCookie(headers);
     if (!authToken) return { status: 'error', message: 'Токен не предоставлен' };
 
     const hid = await this.resolveHid(authToken);
@@ -63,7 +51,7 @@ export class FilesService {
     headers: Record<string, string>,
     file: UploadedMulterFile,
   ) {
-    const authToken = this.extractToken(headers);
+    const authToken = extractTokenFromCookie(headers);
     if (!authToken) {
       return { status: 'error', message: 'Токен не предоставлен' };
     }

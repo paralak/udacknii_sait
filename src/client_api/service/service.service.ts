@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import * as webpush from 'web-push';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Service_reg } from 'src/db/service_reg.entity';
 import { Service_log } from 'src/db/service_log.entity';
 import { Service_types } from 'src/db/serice_types.entity';
@@ -12,8 +12,6 @@ import { PushSubscription } from 'src/db/push_subscription.entity';
 @Injectable()
 export class ServiceService {
     constructor(
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
         @InjectRepository(Service_reg)
         private serviceRegRepository: Repository<Service_reg>,
         @InjectRepository(Service_log)
@@ -27,34 +25,11 @@ export class ServiceService {
     ) {}
 
     async checkToken(headers: Record<string, string>) {
-        const cookieHeader = headers['cookie'];
-        if (!cookieHeader) {
-            return { status: 'error', message: 'Токен не предоставлен' };
-        }
-
-        const match = cookieHeader.match(/auth_token=([^;]+)/);
-        if (!match) {
-            return { status: 'error', message: 'Токен не предоставлен' };
-        }
-
-        const authToken = match[1];
-        const token = await this.tokenRepository.findOne({ where: { token: authToken } });
-
-        if (!token) {
-            return { status: 'not_found', message: 'Токен не найден' };
-        }
-
-        const now = new Date();
-        if (new Date(token.expired) < now) {
-            return { status: 'expired', message: 'Токен истёк', expiredAt: token.expired };
-        }
-
-        return {
-            status: 'valid',
-            message: 'Токен действителен',
-            userId: token.user_id,
-            expiresAt: token.expired,
-        };
+        const token = extractTokenFromCookie(headers);
+        if (!token) return { status: 'error', message: 'Токен не предоставлен' };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный или истёкший токен' };
+        return { status: 'valid', message: 'Токен действителен', userId: payload.sub };
     }
 
     private async sendPushToHid(hid: number, title: string, body: string) {

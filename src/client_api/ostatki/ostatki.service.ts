@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
 import { Ostatki_fields } from 'src/db/ostatki_fields.entity';
 import { Ostatki_reg } from 'src/db/ostatki_reg.entity';
@@ -10,8 +10,6 @@ import { Stock2 } from 'src/db/stock2.entity';
 @Injectable()
 export class OstatkiService {
     constructor(
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
         @InjectRepository(Sku_parameters)
         private skuRepository: Repository<Sku_parameters>,
         @InjectRepository(Ostatki_reg)
@@ -23,49 +21,11 @@ export class OstatkiService {
     ) {}
 
     async checkToken(headers: Record<string, string>) {
-        const cookieHeader = headers['cookie'];
-        if (!cookieHeader) {
-            return {
-                status: 'error',
-                message: 'Токен не предоставлен',
-            };
-        }
-
-        const match = cookieHeader.match(/auth_token=([^;]+)/);
-        if (!match) {
-            return {
-                status: 'error',
-                message: 'Токен не предоставлен',
-            };
-        }
-
-        const authToken = match[1];
-        const token = await this.tokenRepository.findOne({ where: { token: authToken } });
-
-        if (!token) {
-            return {
-                status: 'not_found',
-                message: 'Токен не найден',
-            };
-        }
-
-        const now = new Date();
-        const expiredDate = new Date(token.expired);
-
-        if (expiredDate < now) {
-            return {
-                status: 'expired',
-                message: 'Токен истёк',
-                expiredAt: token.expired,
-            };
-        }
-
-        return {
-            status: 'valid',
-            message: 'Токен действителен',
-            userId: token.user_id,
-            expiresAt: token.expired,
-        };
+        const token = extractTokenFromCookie(headers);
+        if (!token) return { status: 'error', message: 'Токен не предоставлен' };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный или истёкший токен' };
+        return { status: 'valid', message: 'Токен действителен', userId: payload.sub };
     }
 
     async getSkuBySkuId(skuId: number) {

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Token } from 'src/db/token.entity';
+import { verifyJwt } from 'src/auth/jwt.util';
 import { M_for_zarplati } from 'src/db/m_for_zarplati.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Ebal_cost } from 'src/db/ebal_cost.entity';
@@ -11,9 +11,6 @@ import { Month_for_zp } from 'src/db/month_for_zp.entity';
 @Injectable()
 export class ZarplatiService {
     constructor(
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
-
         @InjectRepository(M_for_zarplati)
         private mForZarplatiRepository: Repository<M_for_zarplati>,
 
@@ -31,28 +28,9 @@ export class ZarplatiService {
     ) {}
 
     async checkToken(authToken: string) {
-        let token = await this.tokenRepository.findOne({
-            where: { token: authToken },
-        });
-
-        if (!token) {
-            return {
-                status: 'error',
-                message: 'Неверный токен',
-            };
-        }
-
-        if (token.expired < new Date()) {
-            return {
-                status: 'error',
-                message: 'Токен истек',
-            };
-        }
-
-        return {
-            status: 'valid',
-            userId: token.user_id,
-        };
+        const payload = verifyJwt(authToken);
+        if (!payload) return { status: 'error', message: 'Неверный токен' };
+        return { status: 'valid', userId: payload.sub };
     }
 
     async getYearGrowth(hid: number, month: Date) {
