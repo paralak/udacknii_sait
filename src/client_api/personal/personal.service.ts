@@ -402,6 +402,7 @@ export class PersonalService {
         const managers: any[] = [];
         for (const managerHid of managerHids) {
             const managerNode = allHierarchy.find(h => h.id === managerHid);
+            if (!managerNode) continue;
             const managerFlagList = allFlags.filter(f => f.hid === managerHid);
 
             const tmStoreIds = managerFlagList
@@ -415,6 +416,7 @@ export class PersonalService {
             const stores: any[] = [];
             for (const storeHid of storeHids) {
                 const storeNode = allHierarchy.find(h => h.id === storeHid);
+                if (!storeNode) continue;
                 const latestReport = await this.managerLsReportRepository
                     .createQueryBuilder('r')
                     .where('r.store_hid = :storeHid', { storeHid })
@@ -487,6 +489,7 @@ export class PersonalService {
         const stores: any[] = [];
         for (const storeHid of storeHidsWithPositions) {
             const storeNode = allHierarchy.find(h => h.id === storeHid);
+            if (!storeNode) continue;
 
             const latestReport = await this.managerLsReportRepository
                 .createQueryBuilder('r')
@@ -588,6 +591,7 @@ export class PersonalService {
         const stores: any[] = [];
         for (const storeHid of storeHidsWithPositions) {
             const storeNode = allHierarchy.find(h => h.id === storeHid);
+            if (!storeNode) continue;
 
             const latestReport = await this.managerLsReportRepository
                 .createQueryBuilder('r')
