@@ -1000,7 +1000,23 @@ export class PersonalService {
         }
 
         vacations.sort((a, b) => a._sortTs - b._sortTs);
-        return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v) };
+
+        // Build manager list for filter UI
+        const allFlags = await this.flagsRepository.find();
+        const managerHids = [...new Set(allFlags.filter(f => f.flag === 'MANAGER').map(f => f.hid))];
+        const managers = managerHids
+            .map(hid => {
+                const node = allHierarchy.find(h => h.id === hid);
+                if (!node) return null;
+                const tmStoreHids = allFlags
+                    .filter(f => f.hid === hid && /^TM_\d+$/.test(f.flag))
+                    .map(f => parseInt(f.flag.replace('TM_', '')));
+                return { hid, name: node.name, storeHids: tmStoreHids };
+            })
+            .filter(Boolean)
+            .sort((a: any, b: any) => a.name.localeCompare(b.name, 'ru'));
+
+        return { status: 'success', vacations: vacations.map(({ _sortTs, ...v }) => v), managers };
     }
 
     async markOriginalReceived(headers: Record<string, string>, lsid: string, received: boolean) {
