@@ -12,7 +12,7 @@ export function signJwt(hid: number): string {
 
 export function verifyJwt(token: string): JwtPayload | null {
     try {
-        return jwt.verify(token, SECRET) as JwtPayload;
+        return jwt.verify(token, SECRET) as unknown as JwtPayload;
     } catch {
         return null;
     }

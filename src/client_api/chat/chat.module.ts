@@ -15,7 +15,6 @@ import { PushModule } from '../push/push.module';
             Chat_list,
             Chat_bukket,
             Hierarchy,
-            Token,
             Hid_for_chat,
             Flags,
         ]),
