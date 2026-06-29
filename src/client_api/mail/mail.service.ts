@@ -1,28 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Token } from 'src/db/token.entity';
+import { verifyJwt } from 'src/auth/jwt.util';
 import { MailCredentials } from 'src/db/mail_credentials.entity';
 
 @Injectable()
 export class MailService {
     constructor(
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
-
         @InjectRepository(MailCredentials)
         private mailCredentialsRepository: Repository<MailCredentials>,
     ) {}
 
     async checkToken(token: string) {
-        const r = await this.tokenRepository.findOne({ where: { token } });
-        if (!r) {
-            return { status: 'error', message: 'Токен не найден' };
-        }
-        if (r.expired < new Date()) {
-            return { status: 'error', message: 'Токен истёк' };
-        }
-        return { status: 'success', data: r.user_id };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный токен' };
+        return { status: 'success', data: payload.sub };
     }
 
     async getMailCredentials(hid: number) {

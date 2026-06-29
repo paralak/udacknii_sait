@@ -8,7 +8,7 @@ import { SupplierSettings } from 'src/db/supplier_settings.entity';
 import { SkuRashod } from 'src/db/sku_rashod.entity';
 import { Sku_parameters } from 'src/db/sku_parameters.entity';
 import { OrdersTable } from 'src/db/orders_table.entity';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Flags } from 'src/db/flags.entity';
 import { Stock2 } from 'src/db/stock2.entity';
 import { ZakupRashodniki } from 'src/db/zakup_rashodniki.entity';
@@ -69,8 +69,6 @@ export class CalculationService {
         @InjectRepository(OrdersTable)
         private ordersTableRepo: Repository<OrdersTable>,
 
-        @InjectRepository(Token)
-        private tokenRepo: Repository<Token>,
 
         @InjectRepository(Flags)
         private flagsRepo: Repository<Flags>,
@@ -86,12 +84,11 @@ export class CalculationService {
     ) {}
 
     async checkToken(headers: Record<string, string>): Promise<{ status: string; userId?: number; message?: string }> {
-        const match = headers['cookie']?.match(/auth_token=([^;]+)/);
-        if (!match) return { status: 'error', message: 'Токен не предоставлен' };
-        const token = await this.tokenRepo.findOne({ where: { token: match[1] } });
-        if (!token) return { status: 'error', message: 'Токен не найден' };
-        if (new Date(token.expired) < new Date()) return { status: 'error', message: 'Токен истёк' };
-        return { status: 'valid', userId: token.user_id };
+        const token = extractTokenFromCookie(headers);
+        if (!token) return { status: 'error', message: 'Токен не предоставлен' };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный или истёкший токен' };
+        return { status: 'valid', userId: payload.sub };
     }
 
     async isAdmin(hid: number): Promise<boolean> {

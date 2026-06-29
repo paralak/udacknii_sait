@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { Suggestion } from 'src/db/suggestion.entity';
 import { SuggestionReply } from 'src/db/suggestion_reply.entity';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Flags } from 'src/db/flags.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { PushSubscription } from 'src/db/push_subscription.entity';
@@ -16,8 +16,6 @@ export class SuggestionsService {
     private readonly suggestionRepository: Repository<Suggestion>,
     @InjectRepository(SuggestionReply)
     private readonly replyRepository: Repository<SuggestionReply>,
-    @InjectRepository(Token)
-    private readonly tokenRepository: Repository<Token>,
     @InjectRepository(Flags)
     private readonly flagsRepository: Repository<Flags>,
     @InjectRepository(Hierarchy)
@@ -26,19 +24,10 @@ export class SuggestionsService {
     private readonly pushSubscriptionRepository: Repository<PushSubscription>,
   ) {}
 
-  private extractToken(headers: Record<string, string>): string | null {
-    const cookie = headers['cookie'];
-    if (!cookie) return null;
-    const match = cookie.match(/auth_token=([^;]+)/);
-    return match ? match[1] : null;
-  }
-
   private async resolveHid(authToken: string | null): Promise<number | null> {
     if (!authToken) return null;
-    const token = await this.tokenRepository.findOne({ where: { token: authToken } });
-    if (!token) return null;
-    if (new Date(token.expired) < new Date()) return null;
-    return token.user_id;
+    const payload = verifyJwt(authToken);
+    return payload ? payload.sub : null;
   }
 
   private async checkViewAccess(authToken: string | null): Promise<boolean> {
@@ -105,7 +94,7 @@ export class SuggestionsService {
       return { status: 'error', message: 'Неверная категория' };
     }
 
-    const authToken = this.extractToken(headers);
+    const authToken = extractTokenFromCookie(headers);
     const hid = await this.resolveHid(authToken);
 
     const suggestion = this.suggestionRepository.create({
@@ -120,7 +109,7 @@ export class SuggestionsService {
   }
 
   async getMy(headers: Record<string, string>) {
-    const authToken = this.extractToken(headers);
+    const authToken = extractTokenFromCookie(headers);
     const hid = await this.resolveHid(authToken);
     if (!hid) return { status: 'error', message: 'Не авторизован' };
 
@@ -134,7 +123,7 @@ export class SuggestionsService {
   }
 
   async getAll(headers: Record<string, string>) {
-    const authToken = this.extractToken(headers);
+    const authToken = extractTokenFromCookie(headers);
     const allowed = await this.checkViewAccess(authToken);
     if (!allowed) return { status: 'error', message: 'Нет доступа' };
 
@@ -144,7 +133,7 @@ export class SuggestionsService {
   }
 
   async reply(headers: Record<string, string>, suggestionId: number, text: string) {
-    const authToken = this.extractToken(headers);
+    const authToken = extractTokenFromCookie(headers);
     const allowed = await this.checkViewAccess(authToken);
     if (!allowed) return { status: 'error', message: 'Нет доступа' };
 

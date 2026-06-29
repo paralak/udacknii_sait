@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Flags } from 'src/db/flags.entity';
 import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
 import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
@@ -13,9 +13,6 @@ import { SkuTtk } from 'src/db/sku_ttk.entity';
 @Injectable()
 export class AutoOrdersService {
     constructor(
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
-
         @InjectRepository(Flags)
         private flagsRepository: Repository<Flags>,
 
@@ -39,28 +36,11 @@ export class AutoOrdersService {
     ) {}
 
     async checkToken(headers: Record<string, string>) {
-        const cookieHeader = headers['cookie'];
-        if (!cookieHeader) {
-            return { status: 'error', message: 'Токен не предоставлен' };
-        }
-
-        const match = cookieHeader.match(/auth_token=([^;]+)/);
-        if (!match) {
-            return { status: 'error', message: 'Токен не предоставлен' };
-        }
-
-        const authToken = match[1];
-        const token = await this.tokenRepository.findOne({ where: { token: authToken } });
-
-        if (!token) {
-            return { status: 'not_found', message: 'Токен не найден' };
-        }
-
-        if (new Date(token.expired) < new Date()) {
-            return { status: 'expired', message: 'Токен истёк' };
-        }
-
-        return { status: 'valid', userId: token.user_id };
+        const token = extractTokenFromCookie(headers);
+        if (!token) return { status: 'error', message: 'Токен не предоставлен' };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный или истёкший токен' };
+        return { status: 'valid', userId: payload.sub };
     }
 
     /** Возвращает allowed address_codes для пользователя.

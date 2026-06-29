@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AutoOrdersController } from './auto-orders.controller';
 import { AutoOrdersService } from './auto-orders.service';
 import { ConsumptionService } from './consumption.service';
-import { Token } from 'src/db/token.entity';
 import { Flags } from 'src/db/flags.entity';
 import { AutoOrdersAddress } from 'src/db/auto_orders_address.entity';
 import { SkuItemSettings } from 'src/db/sku_item_settings.entity';
@@ -14,7 +13,6 @@ import { SkuTtk } from 'src/db/sku_ttk.entity';
 
 @Module({
     imports: [TypeOrmModule.forFeature([
-        Token,
         Flags,
         AutoOrdersAddress,
         SkuItemSettings,

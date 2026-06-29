@@ -5,7 +5,7 @@ import { Chat_bukket } from 'src/db/chat_bukket.entity';
 import { Chat_list } from 'src/db/chat_list.entity';
 import { Hid_for_chat } from 'src/db/hid_for_chat.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
-import { Token } from 'src/db/token.entity';
+import { verifyJwt } from 'src/auth/jwt.util';
 import { Flags } from 'src/db/flags.entity';
 import { Between, In, Repository } from 'typeorm';
 
@@ -18,9 +18,6 @@ export class ChatService {
         @InjectRepository(Hierarchy)
         private hierarchyRepository: Repository<Hierarchy>,
 
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
-
         @InjectRepository(Chat_bukket)
         private chatBukketRepository: Repository<Chat_bukket>,
 
@@ -32,25 +29,9 @@ export class ChatService {
     ) {}
 
     async checkToken(token: string) {
-        let r = await this.tokenRepository.findOne({
-            where: { token }
-        });
-        if (!r) {
-            return {
-                status: 'error',
-                message: 'Токен не найден',
-            };
-        }
-        if (r.expired < new Date()) {
-            return {
-                status: 'error',
-                message: 'Токен истек',
-            };
-        }
-        return {
-            status: 'success',
-            data: r.user_id,
-        };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный токен' };
+        return { status: 'success', data: payload.sub };
     }
 
     async getAccess(hid: number) {

@@ -8,7 +8,7 @@ import { Personal_pos } from 'src/db/personal/personal_pos.entity';
 import { Personal_ls } from 'src/db/personal/personal_ls.entity';
 import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
 import { VacationApplication } from 'src/db/personal/vacation_application.entity';
-import { Token } from 'src/db/token.entity';
+import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Flags } from 'src/db/flags.entity';
 import { PersonalInfoDTO } from 'src/db/dto/personal_info.dto';
@@ -32,9 +32,6 @@ export class PersonalService {
 
         @InjectRepository(VacationApplication)
         private vacationApplicationRepository: Repository<VacationApplication>,
-
-        @InjectRepository(Token)
-        private tokenRepository: Repository<Token>,
 
         @InjectRepository(Hierarchy)
         private hierarchyRepository: Repository<Hierarchy>,
@@ -118,60 +115,11 @@ export class PersonalService {
 
 
     async checkToken(headers: Record<string, string>) {
-        const cookieHeader = headers['cookie'];
-        
-        if (cookieHeader) {
-            // Используем регулярное выражение для поиска auth_token
-            const match = cookieHeader.match(/auth_token=([^;]+)/);
-            
-            if (match) {
-                var authToken = match[1];
-                console.log('Auth token:', authToken);
-            } else {
-                return {
-                    status: 'error',
-                    message: 'Токен не предоставлен',
-                };
-            }
-        } else {
-            return {
-                status: 'error',
-                message: 'Токен не предоставлен',
-            };
-        }
-
-        const token = await this.tokenRepository.findOne({
-            where: { token: authToken },
-        });
-
-        // 1. Токен не существует
-        if (!token) {
-        return {
-            status: 'not_found',
-            message: 'Токен не найден',
-        };
-        }
-
-        const now = new Date();
-        const expiredDate = new Date(token.expired);
-
-        // 2. Токен истёк
-        if (expiredDate < now) {
-        return {
-            status: 'expired',
-            message: 'Токен истёк',
-            expiredAt: token.expired,
-        };
-        }
-
-        // 3. Токен верен
-        return {
-            status: 'valid',
-            message: 'Токен действителен',
-            userId: token.user_id,
-            expiresAt: token.expired,
-        };
-
+        const token = extractTokenFromCookie(headers);
+        if (!token) return { status: 'error', message: 'Токен не предоставлен' };
+        const payload = verifyJwt(token);
+        if (!payload) return { status: 'error', message: 'Недействительный или истёкший токен' };
+        return { status: 'valid', message: 'Токен действителен', userId: payload.sub };
     }
 
     async getPos(hid: number, headers: Record<string, string>) {
