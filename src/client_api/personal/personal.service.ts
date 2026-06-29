@@ -450,9 +450,15 @@ export class PersonalService {
 
             stores.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 
+            const seniorNode = managerNode.parent_id > 0
+                ? allHierarchy.find(h => h.id === managerNode.parent_id) ?? null
+                : null;
+
             managers.push({
                 hid: managerHid,
                 name: managerNode?.name || `Менеджер ${managerHid}`,
+                seniorHid: seniorNode?.id ?? null,
+                seniorName: seniorNode?.name ?? null,
                 totalStores: storeHids.length,
                 filledStores: stores.filter(s => s.lastFilledAt).length,
                 stores,
