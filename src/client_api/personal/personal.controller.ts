@@ -223,8 +223,9 @@ export class PersonalController {
         @Headers() headers: Record<string, string>,
         @Query('from') from?: string,
         @Query('to') to?: string,
+        @Query('all') all?: string,
     ) {
-        return this.personalService.getVacationsForGantt(headers, from, to);
+        return this.personalService.getVacationsForGantt(headers, from, to, all === 'true');
     }
 
     @Post('vacations/mark-original')
