@@ -902,7 +902,7 @@ export class PersonalService {
         return 'no_scan';
     }
 
-    async getVacationsForGantt(headers: Record<string, string>, from?: string, to?: string) {
+    async getVacationsForGantt(headers: Record<string, string>, from?: string, to?: string, includeAll = false) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
 
@@ -923,6 +923,7 @@ export class PersonalService {
         const allHierarchy = allHierarchyForGantt;
         const vacations: any[] = [];
         const allLsids = new Set<string>();
+        const allPositionsMap = new Map<string, { fio: string; positionName: string; storeName: string; storeHid: number }>();
 
         // First pass: collect all lsids
         for (const storeHid of storeHids) {
@@ -967,6 +968,14 @@ export class PersonalService {
             for (const pos of positions) {
                 if (!pos.lsid || !pos.staff) continue;
                 const employeeApps = appsMap.get(pos.lsid) || [];
+                if (!allPositionsMap.has(pos.lsid)) {
+                    allPositionsMap.set(pos.lsid, {
+                        fio: pos.staff.fio || pos.name || '',
+                        positionName: pos.name,
+                        storeName,
+                        storeHid,
+                    });
+                }
                 for (const n of [1, 2, 3]) {
                     const startStr: string | undefined = pos.staff[`vacation${n}Start`];
                     const endStr: string | undefined = pos.staff[`vacation${n}End`];
@@ -1000,6 +1009,31 @@ export class PersonalService {
                         originalReceivedAt: matchingApp?.originalReceivedAt ? new Date(matchingApp.originalReceivedAt).toISOString() : null,
                         applicationId: matchingApp?.id ?? null,
                         _sortTs: startDate?.getTime() ?? Number.MAX_SAFE_INTEGER,
+                    });
+                }
+            }
+        }
+
+        if (includeAll) {
+            const lsidsWithVacation = new Set(vacations.map(v => v.lsid));
+            for (const [lsid, pos] of allPositionsMap) {
+                if (!lsidsWithVacation.has(lsid)) {
+                    vacations.push({
+                        lsid,
+                        fio: pos.fio,
+                        positionName: pos.positionName,
+                        storeName: pos.storeName,
+                        storeHid: pos.storeHid,
+                        vacationStart: null,
+                        vacationEnd: null,
+                        period: 1,
+                        docStatus: 'no_scan',
+                        scanSentAt: null,
+                        scanFileUrl: null,
+                        originalReceived: false,
+                        originalReceivedAt: null,
+                        applicationId: null,
+                        _sortTs: Number.MAX_SAFE_INTEGER,
                     });
                 }
             }
