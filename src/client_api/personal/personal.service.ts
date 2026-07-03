@@ -1186,4 +1186,63 @@ export class PersonalService {
         await this.vacationApplicationRepository.save(app);
         return { status: 'success' };
     }
+
+    async addVacationPeriod(
+        headers: Record<string, string>,
+        lsid: string,
+        period: number,
+        vacationStart: string,
+        vacationEnd: string,
+    ) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+
+        const myFlags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        const isAdmin = myFlags.some(f => f.flag === 'ADMIN');
+        const isManager = myFlags.some(f => f.flag === 'MANAGER');
+        if (!isAdmin && !isManager) return { status: 'error', message: 'Нет доступа' };
+
+        if (![1, 2, 3].includes(period)) return { status: 'error', message: 'Период должен быть 1, 2 или 3' };
+
+        const toRussianDate = (iso: string): string => {
+            const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+            return iso;
+        };
+
+        const startRu = toRussianDate(vacationStart);
+        const endRu = toRussianDate(vacationEnd);
+
+        if (!this.parseRussianDate(startRu) || !this.parseRussianDate(endRu)) {
+            return { status: 'error', message: 'Неверный формат дат' };
+        }
+
+        // Find latest report for any store that contains this lsid
+        const allHierarchy = await this.hierarchyRepository.find();
+        const flagValues = myFlags.map(f => f.flag);
+        const storeHids = this.resolveAccessibleStoreHids(flagValues, allHierarchy, check.userId);
+
+        for (const storeHid of storeHids) {
+            const report = await this.managerLsReportRepository
+                .createQueryBuilder('r')
+                .where('r.store_hid = :storeHid', { storeHid })
+                .orderBy('r.filled_at', 'DESC')
+                .getOne();
+            if (!report) continue;
+
+            const data: any = report.data;
+            const positions: any[] = data?.positions || [];
+            const posIdx = positions.findIndex((p: any) => p.lsid === lsid);
+            if (posIdx === -1) continue;
+
+            positions[posIdx].staff = positions[posIdx].staff || {};
+            positions[posIdx].staff[`vacation${period}Start`] = startRu;
+            positions[posIdx].staff[`vacation${period}End`] = endRu;
+
+            await this.managerLsReportRepository.save({ ...report, data: { ...data, positions } });
+            return { status: 'success' };
+        }
+
+        return { status: 'error', message: 'Сотрудник не найден в отчётах' };
+    }
 }

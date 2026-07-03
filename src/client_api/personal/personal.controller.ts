@@ -262,6 +262,22 @@ export class PersonalController {
         return this.personalService.uploadVacationSample(headers, file);
     }
 
+    @Post('vacations/add-period')
+    addVacationPeriod(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { lsid: string; period: number; vacationStart: string; vacationEnd: string },
+    ) {
+        if (!body.lsid) return { status: 'error', message: 'Не указан сотрудник' };
+        if (!body.vacationStart || !body.vacationEnd) return { status: 'error', message: 'Укажите даты отпуска' };
+        return this.personalService.addVacationPeriod(
+            headers,
+            body.lsid,
+            Number(body.period),
+            body.vacationStart,
+            body.vacationEnd,
+        );
+    }
+
     @Post('vacations/submit')
     @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
     submitVacationApplication(
