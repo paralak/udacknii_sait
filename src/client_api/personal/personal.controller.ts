@@ -224,6 +224,18 @@ export class PersonalController {
         return this.personalService.deleteLsVacancy(headers, Number(id));
     }
 
+    // ── LS Employees (нормализованный список из формы) ──
+
+    @Get('employees')
+    getEmployees(@Headers() headers: Record<string, string>) {
+        return this.personalService.getEmployees(headers);
+    }
+
+    @Post('employees/rebuild')
+    rebuildEmployees(@Headers() headers: Record<string, string>) {
+        return this.personalService.rebuildEmployees(headers);
+    }
+
     @Get('manager/admin-view')
     getAdminManagerReport(@Headers() headers: Record<string, string>) {
         return this.personalService.getAdminManagerReport(headers);

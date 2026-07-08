@@ -9,6 +9,8 @@ import { Personal_ls } from 'src/db/personal/personal_ls.entity';
 import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
 import { VacationApplication } from 'src/db/personal/vacation_application.entity';
 import { LsVacancy } from 'src/db/personal/ls_vacancy.entity';
+import { LsEmployee } from 'src/db/personal/ls_employee.entity';
+import { FINAL_VACANCIES, normalizePosition } from './employee-normalization';
 import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Flags } from 'src/db/flags.entity';
@@ -39,6 +41,9 @@ export class PersonalService implements OnApplicationBootstrap {
         @InjectRepository(LsVacancy)
         private lsVacancyRepository: Repository<LsVacancy>,
 
+        @InjectRepository(LsEmployee)
+        private lsEmployeeRepository: Repository<LsEmployee>,
+
         @InjectRepository(Hierarchy)
         private hierarchyRepository: Repository<Hierarchy>,
 
@@ -57,6 +62,163 @@ export class PersonalService implements OnApplicationBootstrap {
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
+
+        // Нормализованный список сотрудников (из формы «Заполнить персонал»).
+        await this.dataSource.query(`
+            CREATE TABLE IF NOT EXISTS ls_employees (
+                id INT NOT NULL AUTO_INCREMENT,
+                \`number\` VARCHAR(63) NULL,
+                fio VARCHAR(255) NULL,
+                position VARCHAR(255) NULL,
+                vacancy_id INT NULL,
+                store_hid INT NULL,
+                store_name VARCHAR(255) NULL,
+                added_at DATETIME NULL,
+                status VARCHAR(63) NULL,
+                flags VARCHAR(255) NULL,
+                lsid VARCHAR(31) NULL,
+                raw_position VARCHAR(255) NULL,
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Первичное наполнение при пустой таблице (идемпотентно, ручной перезапуск — POST /employees/rebuild).
+        try {
+            const cnt = await this.dataSource.query('SELECT COUNT(*) AS c FROM ls_employees');
+            if (Number(cnt?.[0]?.c ?? 0) === 0) {
+                await this.rebuildEmployeesInternal();
+            }
+        } catch (e) {
+            console.error('ls_employees initial migration failed:', e);
+        }
+    }
+
+    // Гарантирует наличие финальных вакансий в ls_vacancies. Возвращает Map<name, id>.
+    private async ensureVacanciesSeeded(): Promise<Map<string, number>> {
+        const existing = await this.lsVacancyRepository.find();
+        const byName = new Map<string, number>(existing.map(v => [v.name, v.id]));
+        for (const name of FINAL_VACANCIES) {
+            if (!byName.has(name)) {
+                const saved = await this.lsVacancyRepository.save(
+                    this.lsVacancyRepository.create({ name, description: null }),
+                );
+                byName.set(name, saved.id);
+            }
+        }
+        return byName;
+    }
+
+    // Полная пересборка ls_employees из последних снимков manager_ls_report.
+    // Все мутации через прямое подключение (root) — ограничения sql-proxy тут не действуют.
+    private async rebuildEmployeesInternal(): Promise<{ vacancies: number; employees: number; unnormalized: number }> {
+        const vacMap = await this.ensureVacanciesSeeded();
+
+        // Последний отчёт на каждый магазин.
+        const latestReports: ManagerLsReport[] = await this.managerLsReportRepository
+            .createQueryBuilder('r')
+            .innerJoin(
+                qb => qb
+                    .select('x.store_hid', 'sh')
+                    .addSelect('MAX(x.filled_at)', 'mx')
+                    .from(ManagerLsReport, 'x')
+                    .groupBy('x.store_hid'),
+                't',
+                't.sh = r.store_hid AND t.mx = r.filled_at',
+            )
+            .getMany();
+
+        interface Row {
+            number: string | null; fio: string; position: string | null; vacancy_id: number | null;
+            store_hid: number; store_name: string | null; added_at: Date; status: string;
+            flags: string | null; lsid: string | null; raw_position: string | null;
+        }
+        const rows: Row[] = [];
+        let unnormalized = 0;
+
+        for (const rep of latestReports) {
+            const positions: any[] = (rep.data as any)?.positions || [];
+            for (const p of positions) {
+                const staff = p?.staff;
+                if (!staff || typeof staff !== 'object') continue;
+                const fio = (staff.fio || '').trim();
+                if (!fio) continue;
+
+                const raw = (p.name || '').trim();
+                const canon = normalizePosition(raw);
+                if (!canon) unnormalized++;
+
+                const dismissed = (staff.dismissalDate || '').trim() || (staff.departureDate || '').trim();
+
+                rows.push({
+                    number: (staff.phone || '').trim() || null,
+                    fio,
+                    position: canon,
+                    vacancy_id: canon ? (vacMap.get(canon) ?? null) : null,
+                    store_hid: rep.store_hid,
+                    store_name: null,
+                    added_at: rep.filled_at,
+                    status: dismissed ? 'dismissed' : 'active',
+                    flags: null,
+                    lsid: p.lsid || null,
+                    raw_position: raw || null,
+                });
+            }
+        }
+
+        const qr = this.dataSource.createQueryRunner();
+        await qr.connect();
+        await qr.startTransaction();
+        try {
+            await qr.query('DELETE FROM ls_employees');
+            // Разрешаем явный id=0 (autoincrement с нуля по требованию).
+            await qr.query("SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO')");
+
+            const cols = '(id, `number`, fio, position, vacancy_id, store_hid, store_name, added_at, status, flags, lsid, raw_position)';
+            const CHUNK = 200;
+            for (let i = 0; i < rows.length; i += CHUNK) {
+                const slice = rows.slice(i, i + CHUNK);
+                const placeholders: string[] = [];
+                const params: any[] = [];
+                slice.forEach((r, j) => {
+                    placeholders.push('(?,?,?,?,?,?,?,?,?,?,?,?)');
+                    params.push(
+                        i + j, r.number, r.fio, r.position, r.vacancy_id, r.store_hid,
+                        r.store_name, r.added_at, r.status, r.flags, r.lsid, r.raw_position,
+                    );
+                });
+                await qr.query(`INSERT INTO ls_employees ${cols} VALUES ${placeholders.join(',')}`, params);
+            }
+            // Следующий autoincrement — после максимального id.
+            await qr.query(`ALTER TABLE ls_employees AUTO_INCREMENT = ${rows.length}`);
+            await qr.commitTransaction();
+        } catch (e) {
+            await qr.rollbackTransaction();
+            throw e;
+        } finally {
+            await qr.release();
+        }
+
+        return { vacancies: vacMap.size, employees: rows.length, unnormalized };
+    }
+
+    // POST /personal/employees/rebuild — ручной запуск пересборки (ADMIN).
+    async rebuildEmployees(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        const result = await this.rebuildEmployeesInternal();
+        return { status: 'success', ...result };
+    }
+
+    // GET /personal/employees — список нормализованных сотрудников (ADMIN).
+    async getEmployees(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        const employees = await this.lsEmployeeRepository.find({ order: { id: 'ASC' } });
+        return { status: 'success', employees };
     }
 
     async getInfo(lsid: string | undefined, headers: Record<string, string>) {
