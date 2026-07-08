@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Personal_ls_info } from 'src/db/personal/personal_ls_info.entity';
@@ -17,8 +17,10 @@ import { PersonalPosDTO } from 'src/db/dto/personal_pos.dto';
 import { PersonalLsDTO } from 'src/db/dto/personal_ls.dto';
 
 @Injectable()
-export class PersonalService {
+export class PersonalService implements OnApplicationBootstrap {
     constructor(
+        private dataSource: DataSource,
+
         @InjectRepository(Personal_ls_info)
         private personalLsInfoRepository: Repository<Personal_ls_info>,
 
@@ -43,6 +45,19 @@ export class PersonalService {
         @InjectRepository(Flags)
         private flagsRepository: Repository<Flags>,
     ) {}
+
+    async onApplicationBootstrap() {
+        await this.dataSource.query(`
+            CREATE TABLE IF NOT EXISTS ls_vacancies (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                internal_id VARCHAR(255) NOT NULL UNIQUE,
+                name VARCHAR(255) NOT NULL,
+                description TEXT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+    }
 
     async getInfo(lsid: string | undefined, headers: Record<string, string>) {
         const checkResponse = await this.checkToken(headers);
