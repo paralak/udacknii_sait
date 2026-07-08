@@ -8,6 +8,7 @@ import { Personal_pos } from 'src/db/personal/personal_pos.entity';
 import { Personal_ls } from 'src/db/personal/personal_ls.entity';
 import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
 import { VacationApplication } from 'src/db/personal/vacation_application.entity';
+import { LsVacancy } from 'src/db/personal/ls_vacancy.entity';
 import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Flags } from 'src/db/flags.entity';
@@ -32,6 +33,9 @@ export class PersonalService {
 
         @InjectRepository(VacationApplication)
         private vacationApplicationRepository: Repository<VacationApplication>,
+
+        @InjectRepository(LsVacancy)
+        private lsVacancyRepository: Repository<LsVacancy>,
 
         @InjectRepository(Hierarchy)
         private hierarchyRepository: Repository<Hierarchy>,
@@ -1184,6 +1188,56 @@ export class PersonalService {
             comment: comment || null,
         });
         await this.vacationApplicationRepository.save(app);
+        return { status: 'success' };
+    }
+
+    // ── LS Vacancies ──────────────────────────────────
+
+    async getLsVacancies(headers: Record<string, string>) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        const vacancies = await this.lsVacancyRepository.find({ order: { name: 'ASC' } });
+        return { status: 'success', vacancies };
+    }
+
+    async createLsVacancy(headers: Record<string, string>, internal_id: string, name: string, description: string | null) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        const existing = await this.lsVacancyRepository.findOne({ where: { internal_id } });
+        if (existing) return { status: 'error', message: 'Вакансия с таким внутренним ID уже существует' };
+        const vacancy = this.lsVacancyRepository.create({ internal_id, name, description: description || null });
+        await this.lsVacancyRepository.save(vacancy);
+        return { status: 'success', vacancy };
+    }
+
+    async updateLsVacancy(headers: Record<string, string>, id: number, internal_id: string, name: string, description: string | null) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        const vacancy = await this.lsVacancyRepository.findOne({ where: { id } });
+        if (!vacancy) return { status: 'error', message: 'Вакансия не найдена' };
+        const duplicate = await this.lsVacancyRepository.findOne({ where: { internal_id } });
+        if (duplicate && duplicate.id !== id) return { status: 'error', message: 'Вакансия с таким внутренним ID уже существует' };
+        vacancy.internal_id = internal_id;
+        vacancy.name = name;
+        vacancy.description = description || null;
+        await this.lsVacancyRepository.save(vacancy);
+        return { status: 'success', vacancy };
+    }
+
+    async deleteLsVacancy(headers: Record<string, string>, id: number) {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        const vacancy = await this.lsVacancyRepository.findOne({ where: { id } });
+        if (!vacancy) return { status: 'error', message: 'Вакансия не найдена' };
+        await this.lsVacancyRepository.delete(id);
         return { status: 'success' };
     }
 

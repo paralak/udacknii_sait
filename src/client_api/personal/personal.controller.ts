@@ -192,6 +192,40 @@ export class PersonalController {
         return this.personalService.deleteLs(lsid, headers);
     }
 
+    // ── LS Vacancies ──────────────────────────────────
+
+    @Get('ls-vacancies')
+    getLsVacancies(@Headers() headers: Record<string, string>) {
+        return this.personalService.getLsVacancies(headers);
+    }
+
+    @Post('ls-vacancies/create')
+    createLsVacancy(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { internal_id: string; name: string; description?: string },
+    ) {
+        if (!body.internal_id?.trim()) return { status: 'error', message: 'Укажите внутренний ID' };
+        if (!body.name?.trim()) return { status: 'error', message: 'Укажите название' };
+        return this.personalService.createLsVacancy(headers, body.internal_id.trim(), body.name.trim(), body.description?.trim() || null);
+    }
+
+    @Post('ls-vacancies/update')
+    updateLsVacancy(
+        @Headers() headers: Record<string, string>,
+        @Body() body: { id: number; internal_id: string; name: string; description?: string },
+    ) {
+        if (!body.id) return { status: 'error', message: 'Не указан ID' };
+        if (!body.internal_id?.trim()) return { status: 'error', message: 'Укажите внутренний ID' };
+        if (!body.name?.trim()) return { status: 'error', message: 'Укажите название' };
+        return this.personalService.updateLsVacancy(headers, body.id, body.internal_id.trim(), body.name.trim(), body.description?.trim() || null);
+    }
+
+    @Get('ls-vacancies/delete')
+    deleteLsVacancy(@Headers() headers: Record<string, string>, @Query('id') id: string) {
+        if (!id || isNaN(Number(id))) return { status: 'error', message: 'Неверный ID' };
+        return this.personalService.deleteLsVacancy(headers, Number(id));
+    }
+
     @Get('manager/admin-view')
     getAdminManagerReport(@Headers() headers: Record<string, string>) {
         return this.personalService.getAdminManagerReport(headers);
