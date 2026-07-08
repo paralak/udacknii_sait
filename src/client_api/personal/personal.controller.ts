@@ -202,22 +202,20 @@ export class PersonalController {
     @Post('ls-vacancies/create')
     createLsVacancy(
         @Headers() headers: Record<string, string>,
-        @Body() body: { internal_id: string; name: string; description?: string },
+        @Body() body: { name: string; description?: string },
     ) {
-        if (!body.internal_id?.trim()) return { status: 'error', message: 'Укажите внутренний ID' };
         if (!body.name?.trim()) return { status: 'error', message: 'Укажите название' };
-        return this.personalService.createLsVacancy(headers, body.internal_id.trim(), body.name.trim(), body.description?.trim() || null);
+        return this.personalService.createLsVacancy(headers, body.name.trim(), body.description?.trim() || null);
     }
 
     @Post('ls-vacancies/update')
     updateLsVacancy(
         @Headers() headers: Record<string, string>,
-        @Body() body: { id: number; internal_id: string; name: string; description?: string },
+        @Body() body: { id: number; name: string; description?: string },
     ) {
         if (!body.id) return { status: 'error', message: 'Не указан ID' };
-        if (!body.internal_id?.trim()) return { status: 'error', message: 'Укажите внутренний ID' };
         if (!body.name?.trim()) return { status: 'error', message: 'Укажите название' };
-        return this.personalService.updateLsVacancy(headers, body.id, body.internal_id.trim(), body.name.trim(), body.description?.trim() || null);
+        return this.personalService.updateLsVacancy(headers, body.id, body.name.trim(), body.description?.trim() || null);
     }
 
     @Get('ls-vacancies/delete')

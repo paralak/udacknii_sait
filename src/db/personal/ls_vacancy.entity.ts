@@ -5,9 +5,6 @@ export class LsVacancy {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
-  internal_id: string;
-
   @Column()
   name: string;
 
