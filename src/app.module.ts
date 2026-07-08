@@ -31,6 +31,7 @@ import { PushModule } from './client_api/push/push.module';
             password: 'rAY25WP0jStu8JB',
             database: 'site_db',
             autoLoadEntities: true,
+            synchronize: true,
         }),
         ClientAPIModule,
         DBModule,
