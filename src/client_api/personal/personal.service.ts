@@ -1217,28 +1217,23 @@ export class PersonalService implements OnApplicationBootstrap {
         return { status: 'success', vacancies };
     }
 
-    async createLsVacancy(headers: Record<string, string>, internal_id: string, name: string, description: string | null) {
+    async createLsVacancy(headers: Record<string, string>, name: string, description: string | null) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
         const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
         if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
-        const existing = await this.lsVacancyRepository.findOne({ where: { internal_id } });
-        if (existing) return { status: 'error', message: 'Вакансия с таким внутренним ID уже существует' };
-        const vacancy = this.lsVacancyRepository.create({ internal_id, name, description: description || null });
+        const vacancy = this.lsVacancyRepository.create({ name, description: description || null });
         await this.lsVacancyRepository.save(vacancy);
         return { status: 'success', vacancy };
     }
 
-    async updateLsVacancy(headers: Record<string, string>, id: number, internal_id: string, name: string, description: string | null) {
+    async updateLsVacancy(headers: Record<string, string>, id: number, name: string, description: string | null) {
         const check = await this.checkToken(headers);
         if (check.status !== 'valid') return check;
         const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
         if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
         const vacancy = await this.lsVacancyRepository.findOne({ where: { id } });
         if (!vacancy) return { status: 'error', message: 'Вакансия не найдена' };
-        const duplicate = await this.lsVacancyRepository.findOne({ where: { internal_id } });
-        if (duplicate && duplicate.id !== id) return { status: 'error', message: 'Вакансия с таким внутренним ID уже существует' };
-        vacancy.internal_id = internal_id;
         vacancy.name = name;
         vacancy.description = description || null;
         await this.lsVacancyRepository.save(vacancy);
