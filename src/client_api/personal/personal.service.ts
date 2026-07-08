@@ -93,6 +93,35 @@ export class PersonalService implements OnApplicationBootstrap {
         }
     }
 
+    // Карта store_hid → отображаемое имя магазина. Имена берутся из hid по всем доступным
+    // источникам: hierarchy (org-дерево) + ostatki_reg (формы остатков дают имена кулинарий).
+    // Для магазинов без имени — fallback «Магазин {hid}».
+    private async buildStoreNameMap(): Promise<Map<number, string>> {
+        const map = new Map<number, string>();
+        const hierarchy = await this.hierarchyRepository.find();
+        for (const h of hierarchy) {
+            const name = (h.name || '').trim();
+            if (name) map.set(h.id, name);
+        }
+        try {
+            const rows: Array<{ address: number; name: string }> = await this.dataSource.query(
+                "SELECT address, name FROM ostatki_reg WHERE name <> ''",
+            );
+            for (const r of rows) {
+                const hid = Number(r.address);
+                if (!hid || map.has(hid)) continue;
+                const name = (r.name || '').replace(/^Остатки\s+/i, '').trim();
+                if (name) map.set(hid, name);
+            }
+        } catch { /* ostatki_reg может отсутствовать — не критично */ }
+        return map;
+    }
+
+    private storeName(hid: number | null, map: Map<number, string>): string | null {
+        if (hid == null) return null;
+        return map.get(hid) || `Магазин ${hid}`;
+    }
+
     // Гарантирует наличие финальных вакансий в ls_vacancies. Возвращает Map<name, id>.
     private async ensureVacanciesSeeded(): Promise<Map<string, number>> {
         const existing = await this.lsVacancyRepository.find();
@@ -112,6 +141,7 @@ export class PersonalService implements OnApplicationBootstrap {
     // Все мутации через прямое подключение (root) — ограничения sql-proxy тут не действуют.
     private async rebuildEmployeesInternal(): Promise<{ vacancies: number; employees: number; unnormalized: number }> {
         const vacMap = await this.ensureVacanciesSeeded();
+        const storeMap = await this.buildStoreNameMap();
 
         // Последний отчёт на каждый магазин.
         const latestReports: ManagerLsReport[] = await this.managerLsReportRepository
@@ -155,7 +185,7 @@ export class PersonalService implements OnApplicationBootstrap {
                     position: canon,
                     vacancy_id: canon ? (vacMap.get(canon) ?? null) : null,
                     store_hid: rep.store_hid,
-                    store_name: null,
+                    store_name: this.storeName(rep.store_hid, storeMap),
                     added_at: rep.filled_at,
                     status: dismissed ? 'dismissed' : 'active',
                     flags: null,
@@ -218,7 +248,10 @@ export class PersonalService implements OnApplicationBootstrap {
         const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
         if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
         const employees = await this.lsEmployeeRepository.find({ order: { id: 'ASC' } });
-        return { status: 'success', employees };
+        // Имя магазина резолвим по hid на чтении (свежие имена, даже если справочник обновился после пересборки).
+        const storeMap = await this.buildStoreNameMap();
+        const withNames = employees.map(e => ({ ...e, store_name: this.storeName(e.store_hid, storeMap) }));
+        return { status: 'success', employees: withNames };
     }
 
     async getInfo(lsid: string | undefined, headers: Record<string, string>) {
