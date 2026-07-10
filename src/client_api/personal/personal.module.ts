@@ -10,6 +10,8 @@ import { VacationApplication } from 'src/db/personal/vacation_application.entity
 import { LsVacancy } from 'src/db/personal/ls_vacancy.entity';
 import { LsEmployee } from 'src/db/personal/ls_employee.entity';
 import { LsEmployeeVacation } from 'src/db/personal/ls_employee_vacation.entity';
+import { LsContractType } from 'src/db/personal/ls_contract_type.entity';
+import { LsEmployment } from 'src/db/personal/ls_employment.entity';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Flags } from 'src/db/flags.entity';
 import { MulterModule } from '@nestjs/platform-express';
@@ -26,6 +28,8 @@ import { memoryStorage } from 'multer';
             LsVacancy,
             LsEmployee,
             LsEmployeeVacation,
+            LsContractType,
+            LsEmployment,
             Hierarchy,
             Flags,
         ]),

@@ -49,4 +49,8 @@ export class LsEmployee {
   // исходное (ненормализованное) имя должности
   @Column({ type: 'varchar', length: 255, nullable: true })
   raw_position: string | null;
+
+  // 'form' — из формы (пересобирается), 'manual' — добавлен вручную (сохраняется при пересборке)
+  @Column({ type: 'varchar', length: 15, nullable: true })
+  source: string | null;
 }

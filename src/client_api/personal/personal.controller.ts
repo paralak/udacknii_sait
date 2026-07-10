@@ -258,6 +258,56 @@ export class PersonalController {
         return this.personalService.deleteEmployeeVacation(headers, Number(id));
     }
 
+    @Post('employees/add')
+    addEmployee(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.addEmployee(headers, body);
+    }
+
+    // ── Типы договоров ──
+    @Get('contract-types')
+    getContractTypes(@Headers() headers: Record<string, string>) {
+        return this.personalService.getContractTypes(headers);
+    }
+
+    @Post('contract-types/create')
+    createContractType(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.createContractType(headers, body);
+    }
+
+    @Post('contract-types/update')
+    updateContractType(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.updateContractType(headers, body);
+    }
+
+    @Get('contract-types/delete')
+    deleteContractType(@Headers() headers: Record<string, string>, @Query('id') id: string) {
+        if (!id || isNaN(Number(id))) return { status: 'error', message: 'Неверный id' };
+        return this.personalService.deleteContractType(headers, Number(id));
+    }
+
+    // ── Формы устройства на работу ──
+    @Get('employment')
+    getEmployment(@Headers() headers: Record<string, string>, @Query('employee_id') employeeId?: string) {
+        const id = employeeId != null && employeeId !== '' && !isNaN(Number(employeeId)) ? Number(employeeId) : undefined;
+        return this.personalService.getEmployment(headers, id);
+    }
+
+    @Post('employment/add')
+    addEmployment(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.addEmployment(headers, body);
+    }
+
+    @Post('employment/update')
+    updateEmployment(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.updateEmployment(headers, body);
+    }
+
+    @Get('employment/delete')
+    deleteEmployment(@Headers() headers: Record<string, string>, @Query('id') id: string) {
+        if (!id || isNaN(Number(id))) return { status: 'error', message: 'Неверный id' };
+        return this.personalService.deleteEmployment(headers, Number(id));
+    }
+
     @Get('manager/admin-view')
     getAdminManagerReport(@Headers() headers: Record<string, string>) {
         return this.personalService.getAdminManagerReport(headers);

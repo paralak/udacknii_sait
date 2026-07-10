@@ -11,7 +11,10 @@ import { VacationApplication } from 'src/db/personal/vacation_application.entity
 import { LsVacancy } from 'src/db/personal/ls_vacancy.entity';
 import { LsEmployee } from 'src/db/personal/ls_employee.entity';
 import { LsEmployeeVacation } from 'src/db/personal/ls_employee_vacation.entity';
+import { LsContractType } from 'src/db/personal/ls_contract_type.entity';
+import { LsEmployment } from 'src/db/personal/ls_employment.entity';
 import { FINAL_VACANCIES, normalizePosition } from './employee-normalization';
+import { FINAL_CONTRACT_TYPES, normalizeContractType } from './contract-normalization';
 import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Hierarchy } from 'src/db/hierarchy.entity';
 import { Flags } from 'src/db/flags.entity';
@@ -47,6 +50,12 @@ export class PersonalService implements OnApplicationBootstrap {
 
         @InjectRepository(LsEmployeeVacation)
         private lsEmployeeVacationRepository: Repository<LsEmployeeVacation>,
+
+        @InjectRepository(LsContractType)
+        private lsContractTypeRepository: Repository<LsContractType>,
+
+        @InjectRepository(LsEmployment)
+        private lsEmploymentRepository: Repository<LsEmployment>,
 
         @InjectRepository(Hierarchy)
         private hierarchyRepository: Repository<Hierarchy>,
@@ -105,6 +114,46 @@ export class PersonalService implements OnApplicationBootstrap {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
 
+        // Колонка source в ls_employees (для сохранения вручную добавленных при пересборке).
+        try {
+            await this.dataSource.query("ALTER TABLE ls_employees ADD COLUMN source VARCHAR(15) NULL");
+        } catch { /* колонка уже есть */ }
+
+        // Справочник типов договоров (форм устройства на работу).
+        await this.dataSource.query(`
+            CREATE TABLE IF NOT EXISTS ls_contract_types (
+                id INT NOT NULL AUTO_INCREMENT,
+                code VARCHAR(63) NULL,
+                name VARCHAR(255) NOT NULL,
+                description TEXT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Формы устройства на работу (1-ко-многим к ls_employees).
+        await this.dataSource.query(`
+            CREATE TABLE IF NOT EXISTS ls_employment (
+                id INT NOT NULL AUTO_INCREMENT,
+                employee_id INT NULL,
+                fio VARCHAR(255) NULL,
+                store_hid INT NULL,
+                contract_type VARCHAR(255) NULL,
+                contract_type_id INT NULL,
+                date_from VARCHAR(31) NULL,
+                date_to VARCHAR(31) NULL,
+                source VARCHAR(15) NULL,
+                status VARCHAR(31) NULL,
+                created_at DATETIME NULL,
+                PRIMARY KEY (id),
+                KEY idx_emp (employee_id),
+                KEY idx_fio_store (fio, store_hid)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        await this.ensureContractTypesSeeded();
+
         // Первичное наполнение при пустой таблице (идемпотентно, ручной перезапуск — POST /employees/rebuild).
         try {
             const cnt = await this.dataSource.query('SELECT COUNT(*) AS c FROM ls_employees');
@@ -114,6 +163,21 @@ export class PersonalService implements OnApplicationBootstrap {
         } catch (e) {
             console.error('ls_employees initial migration failed:', e);
         }
+    }
+
+    // Гарантирует наличие финальных типов договоров. Возвращает Map<name, id>.
+    private async ensureContractTypesSeeded(): Promise<Map<string, number>> {
+        const existing = await this.lsContractTypeRepository.find();
+        const byName = new Map<string, number>(existing.map(t => [t.name, t.id]));
+        for (const t of FINAL_CONTRACT_TYPES) {
+            if (!byName.has(t.name)) {
+                const saved = await this.lsContractTypeRepository.save(
+                    this.lsContractTypeRepository.create({ code: t.code, name: t.name, description: null }),
+                );
+                byName.set(t.name, saved.id);
+            }
+        }
+        return byName;
     }
 
     // Карта store_hid → отображаемое имя магазина. Имена берутся из hid по всем доступным
@@ -162,8 +226,9 @@ export class PersonalService implements OnApplicationBootstrap {
 
     // Полная пересборка ls_employees из последних снимков manager_ls_report.
     // Все мутации через прямое подключение (root) — ограничения sql-proxy тут не действуют.
-    private async rebuildEmployeesInternal(): Promise<{ vacancies: number; employees: number; unnormalized: number; vacations: number }> {
+    private async rebuildEmployeesInternal(): Promise<{ vacancies: number; employees: number; unnormalized: number; vacations: number; employment: number }> {
         const vacMap = await this.ensureVacanciesSeeded();
+        const ctMap = await this.ensureContractTypesSeeded();
         const storeMap = await this.buildStoreNameMap();
 
         // Последний отчёт на каждый магазин.
@@ -189,6 +254,9 @@ export class PersonalService implements OnApplicationBootstrap {
         // Отпуска из формы, привязанные к employee по индексу строки (= будущий id).
         interface VacRow { empIdx: number; fio: string; store_hid: number; start: string; end: string; period: number; }
         const vacRows: VacRow[] = [];
+        // Формы устройства на работу из формы (тип договора + даты с/до).
+        interface EmpRow { empIdx: number; fio: string; store_hid: number; ctName: string | null; ctId: number | null; from: string; to: string; }
+        const empRows: EmpRow[] = [];
         let unnormalized = 0;
 
         for (const rep of latestReports) {
@@ -212,6 +280,18 @@ export class PersonalService implements OnApplicationBootstrap {
                     if (s || e) vacRows.push({ empIdx, fio, store_hid: rep.store_hid, start: s, end: e, period: n });
                 }
 
+                // Форма устройства на работу: тип договора + даты с (startDate) / до (dismissalDate).
+                const ctName = normalizeContractType(staff.contractType);
+                const from = (staff.startDate || '').trim();
+                const to = (staff.dismissalDate || '').trim() || (staff.departureDate || '').trim();
+                if (ctName || from || to) {
+                    empRows.push({
+                        empIdx, fio, store_hid: rep.store_hid,
+                        ctName, ctId: ctName ? (ctMap.get(ctName) ?? null) : null,
+                        from, to,
+                    });
+                }
+
                 rows.push({
                     number: (staff.phone || '').trim() || null,
                     fio,
@@ -232,21 +312,22 @@ export class PersonalService implements OnApplicationBootstrap {
         await qr.connect();
         await qr.startTransaction();
         try {
-            await qr.query('DELETE FROM ls_employees');
+            // Пересобираем только form-сотрудников; вручную добавленные (source='manual') сохраняем.
+            await qr.query("DELETE FROM ls_employees WHERE source = 'form' OR source IS NULL");
             // Разрешаем явный id=0 (autoincrement с нуля по требованию).
             await qr.query("SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO')");
 
-            const cols = '(id, `number`, fio, position, vacancy_id, store_hid, store_name, added_at, status, flags, lsid, raw_position)';
+            const cols = '(id, `number`, fio, position, vacancy_id, store_hid, store_name, added_at, status, flags, lsid, raw_position, source)';
             const CHUNK = 200;
             for (let i = 0; i < rows.length; i += CHUNK) {
                 const slice = rows.slice(i, i + CHUNK);
                 const placeholders: string[] = [];
                 const params: any[] = [];
                 slice.forEach((r, j) => {
-                    placeholders.push('(?,?,?,?,?,?,?,?,?,?,?,?)');
+                    placeholders.push('(?,?,?,?,?,?,?,?,?,?,?,?,?)');
                     params.push(
                         i + j, r.number, r.fio, r.position, r.vacancy_id, r.store_hid,
-                        r.store_name, r.added_at, r.status, r.flags, r.lsid, r.raw_position,
+                        r.store_name, r.added_at, r.status, r.flags, r.lsid, r.raw_position, 'form',
                     );
                 });
                 await qr.query(`INSERT INTO ls_employees ${cols} VALUES ${placeholders.join(',')}`, params);
@@ -278,6 +359,28 @@ export class PersonalService implements OnApplicationBootstrap {
                  SET v.employee_id = e.id
                  WHERE v.source = 'manual'`,
             );
+
+            // Формы устройства: пересобираем только form; ручные (source='manual') сохраняем.
+            await qr.query("DELETE FROM ls_employment WHERE source='form' OR source IS NULL");
+            for (let i = 0; i < empRows.length; i += VCHUNK) {
+                const slice = empRows.slice(i, i + VCHUNK);
+                const ph: string[] = [];
+                const pr: any[] = [];
+                for (const v of slice) {
+                    ph.push('(?,?,?,?,?,?,?,?,?)');
+                    pr.push(v.empIdx, v.fio, v.store_hid, v.ctName, v.ctId, v.from || null, v.to || null, 'form', now);
+                }
+                await qr.query(
+                    'INSERT INTO ls_employment (employee_id, fio, store_hid, contract_type, contract_type_id, date_from, date_to, source, created_at) VALUES ' + ph.join(','),
+                    pr,
+                );
+            }
+            await qr.query(
+                `UPDATE ls_employment v
+                 JOIN ls_employees e ON e.fio = v.fio AND (e.store_hid = v.store_hid OR v.store_hid IS NULL)
+                 SET v.employee_id = e.id
+                 WHERE v.source = 'manual'`,
+            );
             await qr.commitTransaction();
         } catch (e) {
             await qr.rollbackTransaction();
@@ -286,7 +389,7 @@ export class PersonalService implements OnApplicationBootstrap {
             await qr.release();
         }
 
-        return { vacancies: vacMap.size, employees: rows.length, unnormalized, vacations: vacRows.length };
+        return { vacancies: vacMap.size, employees: rows.length, unnormalized, vacations: vacRows.length, employment: empRows.length };
     }
 
     // POST /personal/employees/rebuild — ручной запуск пересборки (ADMIN).
@@ -392,6 +495,138 @@ export class PersonalService implements OnApplicationBootstrap {
         const vac = await this.lsEmployeeVacationRepository.findOne({ where: { id } });
         if (!vac) return { status: 'error', message: 'Отпуск не найден' };
         await this.lsEmployeeVacationRepository.delete(id);
+        return { status: 'success' };
+    }
+
+    // POST /personal/employees/add — добавить сотрудника вручную (ADMIN). id в отдельном диапазоне (>=100000),
+    // чтобы не конфликтовать с form-сотрудниками (0..N-1) при пересборке; source='manual' — не стирается.
+    async addEmployee(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const fio = (body.fio || '').trim();
+        if (!fio) return { status: 'error', message: 'Укажите ФИО' };
+        const row = await this.dataSource.query('SELECT GREATEST(COALESCE(MAX(id),0), 99999) + 1 AS nextId FROM ls_employees');
+        const newId = Number(row?.[0]?.nextId ?? 100000);
+        await this.dataSource.query(
+            'INSERT INTO ls_employees (id, `number`, fio, position, store_hid, added_at, status, flags, source) VALUES (?,?,?,?,?,?,?,?,?)',
+            [
+                newId,
+                (body.number || '').trim() || null,
+                fio,
+                (body.position || '').trim() || null,
+                body.store_hid != null && body.store_hid !== '' ? Number(body.store_hid) : null,
+                new Date(),
+                (body.status || 'active'),
+                (body.flags || '').trim() || null,
+                'manual',
+            ],
+        );
+        return { status: 'success', id: newId };
+    }
+
+    // ── Типы договоров (справочник) ──────────────────
+    async getContractTypes(headers: Record<string, string>) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const types = await this.lsContractTypeRepository.find({ order: { id: 'ASC' } });
+        return { status: 'success', types };
+    }
+
+    async createContractType(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const name = (body.name || '').trim();
+        if (!name) return { status: 'error', message: 'Укажите название' };
+        const t = this.lsContractTypeRepository.create({
+            name, code: (body.code || '').trim() || null, description: (body.description || '').trim() || null,
+        });
+        await this.lsContractTypeRepository.save(t);
+        return { status: 'success', type: t };
+    }
+
+    async updateContractType(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const t = await this.lsContractTypeRepository.findOne({ where: { id: Number(body.id) } });
+        if (!t) return { status: 'error', message: 'Тип не найден' };
+        if (body.name !== undefined) t.name = (body.name || '').trim() || t.name;
+        if (body.code !== undefined) t.code = (body.code || '').trim() || null;
+        if (body.description !== undefined) t.description = (body.description || '').trim() || null;
+        await this.lsContractTypeRepository.save(t);
+        return { status: 'success', type: t };
+    }
+
+    async deleteContractType(headers: Record<string, string>, id: number) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const t = await this.lsContractTypeRepository.findOne({ where: { id } });
+        if (!t) return { status: 'error', message: 'Тип не найден' };
+        await this.lsContractTypeRepository.delete(id);
+        return { status: 'success' };
+    }
+
+    // ── Формы устройства на работу ───────────────────
+    // GET /personal/employment — все формы (ADMIN); ?employee_id= — формы одного сотрудника.
+    async getEmployment(headers: Record<string, string>, employeeId?: number) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const where = employeeId != null ? { employee_id: employeeId } : {};
+        const forms = await this.lsEmploymentRepository.find({ where, order: { id: 'ASC' } });
+        const storeMap = await this.buildStoreNameMap();
+        const withNames = forms.map(f => ({ ...f, store_name: this.storeName(f.store_hid, storeMap) }));
+        return { status: 'success', forms: withNames };
+    }
+
+    async addEmployment(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const empId = Number(body.employee_id);
+        if (isNaN(empId)) return { status: 'error', message: 'Не указан сотрудник' };
+        const emp = await this.lsEmployeeRepository.findOne({ where: { id: empId } });
+        if (!emp) return { status: 'error', message: 'Сотрудник не найден' };
+        let ctId: number | null = null;
+        const ctName = (body.contract_type || '').trim() || null;
+        if (ctName) {
+            const t = await this.lsContractTypeRepository.findOne({ where: { name: ctName } });
+            ctId = t?.id ?? null;
+        }
+        const form = this.lsEmploymentRepository.create({
+            employee_id: empId, fio: emp.fio, store_hid: emp.store_hid,
+            contract_type: ctName, contract_type_id: ctId,
+            date_from: (body.date_from || '').trim() || null,
+            date_to: (body.date_to || '').trim() || null,
+            source: 'manual', status: body.status || null, created_at: new Date(),
+        });
+        await this.lsEmploymentRepository.save(form);
+        return { status: 'success', form };
+    }
+
+    async updateEmployment(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const form = await this.lsEmploymentRepository.findOne({ where: { id: Number(body.id) } });
+        if (!form) return { status: 'error', message: 'Форма не найдена' };
+        if (body.contract_type !== undefined) {
+            const ctName = (body.contract_type || '').trim() || null;
+            form.contract_type = ctName;
+            if (ctName) {
+                const t = await this.lsContractTypeRepository.findOne({ where: { name: ctName } });
+                form.contract_type_id = t?.id ?? null;
+            } else form.contract_type_id = null;
+        }
+        if (body.date_from !== undefined) form.date_from = (body.date_from || '').trim() || null;
+        if (body.date_to !== undefined) form.date_to = (body.date_to || '').trim() || null;
+        if (body.status !== undefined) form.status = (body.status || '').trim() || null;
+        await this.lsEmploymentRepository.save(form);
+        return { status: 'success', form };
+    }
+
+    async deleteEmployment(headers: Record<string, string>, id: number) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const form = await this.lsEmploymentRepository.findOne({ where: { id } });
+        if (!form) return { status: 'error', message: 'Форма не найдена' };
+        await this.lsEmploymentRepository.delete(id);
         return { status: 'success' };
     }
 
