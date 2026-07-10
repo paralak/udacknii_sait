@@ -236,6 +236,28 @@ export class PersonalController {
         return this.personalService.rebuildEmployees(headers);
     }
 
+    @Post('employees/update')
+    updateEmployee(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.updateEmployee(headers, body);
+    }
+
+    @Get('employees/vacations')
+    getEmployeeVacations(@Headers() headers: Record<string, string>, @Query('employee_id') employeeId: string) {
+        if (employeeId == null || isNaN(Number(employeeId))) return { status: 'error', message: 'Неверный employee_id' };
+        return this.personalService.getEmployeeVacations(headers, Number(employeeId));
+    }
+
+    @Post('employees/vacations/add')
+    addEmployeeVacation(@Headers() headers: Record<string, string>, @Body() body: any) {
+        return this.personalService.addEmployeeVacation(headers, body);
+    }
+
+    @Get('employees/vacations/delete')
+    deleteEmployeeVacation(@Headers() headers: Record<string, string>, @Query('id') id: string) {
+        if (!id || isNaN(Number(id))) return { status: 'error', message: 'Неверный id' };
+        return this.personalService.deleteEmployeeVacation(headers, Number(id));
+    }
+
     @Get('manager/admin-view')
     getAdminManagerReport(@Headers() headers: Record<string, string>) {
         return this.personalService.getAdminManagerReport(headers);

@@ -10,6 +10,7 @@ import { ManagerLsReport } from 'src/db/personal/manager_ls_report.entity';
 import { VacationApplication } from 'src/db/personal/vacation_application.entity';
 import { LsVacancy } from 'src/db/personal/ls_vacancy.entity';
 import { LsEmployee } from 'src/db/personal/ls_employee.entity';
+import { LsEmployeeVacation } from 'src/db/personal/ls_employee_vacation.entity';
 import { FINAL_VACANCIES, normalizePosition } from './employee-normalization';
 import { extractTokenFromCookie, verifyJwt } from 'src/auth/jwt.util';
 import { Hierarchy } from 'src/db/hierarchy.entity';
@@ -43,6 +44,9 @@ export class PersonalService implements OnApplicationBootstrap {
 
         @InjectRepository(LsEmployee)
         private lsEmployeeRepository: Repository<LsEmployee>,
+
+        @InjectRepository(LsEmployeeVacation)
+        private lsEmployeeVacationRepository: Repository<LsEmployeeVacation>,
 
         @InjectRepository(Hierarchy)
         private hierarchyRepository: Repository<Hierarchy>,
@@ -79,6 +83,25 @@ export class PersonalService implements OnApplicationBootstrap {
                 lsid VARCHAR(31) NULL,
                 raw_position VARCHAR(255) NULL,
                 PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Отпуска сотрудников (1-ко-многим к ls_employees, связка по fio+store_hid).
+        await this.dataSource.query(`
+            CREATE TABLE IF NOT EXISTS ls_employee_vacations (
+                id INT NOT NULL AUTO_INCREMENT,
+                employee_id INT NULL,
+                fio VARCHAR(255) NULL,
+                store_hid INT NULL,
+                vacation_start VARCHAR(31) NULL,
+                vacation_end VARCHAR(31) NULL,
+                period INT NULL,
+                source VARCHAR(15) NULL,
+                status VARCHAR(31) NULL,
+                created_at DATETIME NULL,
+                PRIMARY KEY (id),
+                KEY idx_emp (employee_id),
+                KEY idx_fio_store (fio, store_hid)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
 
@@ -139,7 +162,7 @@ export class PersonalService implements OnApplicationBootstrap {
 
     // Полная пересборка ls_employees из последних снимков manager_ls_report.
     // Все мутации через прямое подключение (root) — ограничения sql-proxy тут не действуют.
-    private async rebuildEmployeesInternal(): Promise<{ vacancies: number; employees: number; unnormalized: number }> {
+    private async rebuildEmployeesInternal(): Promise<{ vacancies: number; employees: number; unnormalized: number; vacations: number }> {
         const vacMap = await this.ensureVacanciesSeeded();
         const storeMap = await this.buildStoreNameMap();
 
@@ -163,6 +186,9 @@ export class PersonalService implements OnApplicationBootstrap {
             flags: string | null; lsid: string | null; raw_position: string | null;
         }
         const rows: Row[] = [];
+        // Отпуска из формы, привязанные к employee по индексу строки (= будущий id).
+        interface VacRow { empIdx: number; fio: string; store_hid: number; start: string; end: string; period: number; }
+        const vacRows: VacRow[] = [];
         let unnormalized = 0;
 
         for (const rep of latestReports) {
@@ -178,6 +204,13 @@ export class PersonalService implements OnApplicationBootstrap {
                 if (!canon) unnormalized++;
 
                 const dismissed = (staff.dismissalDate || '').trim() || (staff.departureDate || '').trim();
+
+                const empIdx = rows.length;
+                for (const n of [1, 2, 3]) {
+                    const s = (staff[`vacation${n}Start`] || '').trim();
+                    const e = (staff[`vacation${n}End`] || '').trim();
+                    if (s || e) vacRows.push({ empIdx, fio, store_hid: rep.store_hid, start: s, end: e, period: n });
+                }
 
                 rows.push({
                     number: (staff.phone || '').trim() || null,
@@ -220,6 +253,31 @@ export class PersonalService implements OnApplicationBootstrap {
             }
             // Следующий autoincrement — после максимального id.
             await qr.query(`ALTER TABLE ls_employees AUTO_INCREMENT = ${rows.length}`);
+
+            // Отпуска: пересобираем только из формы (source='form'); ручные (source='manual') сохраняем.
+            await qr.query("DELETE FROM ls_employee_vacations WHERE source='form' OR source IS NULL");
+            const now = new Date();
+            const VCHUNK = 200;
+            for (let i = 0; i < vacRows.length; i += VCHUNK) {
+                const slice = vacRows.slice(i, i + VCHUNK);
+                const ph: string[] = [];
+                const pr: any[] = [];
+                for (const v of slice) {
+                    ph.push('(?,?,?,?,?,?,?,?)');
+                    pr.push(v.empIdx, v.fio, v.store_hid, v.start || null, v.end || null, v.period, 'form', now);
+                }
+                await qr.query(
+                    'INSERT INTO ls_employee_vacations (employee_id, fio, store_hid, vacation_start, vacation_end, period, source, created_at) VALUES ' + ph.join(','),
+                    pr,
+                );
+            }
+            // Ручные отпуска: восстановить employee_id по (fio, store_hid).
+            await qr.query(
+                `UPDATE ls_employee_vacations v
+                 JOIN ls_employees e ON e.fio = v.fio AND (e.store_hid = v.store_hid OR v.store_hid IS NULL)
+                 SET v.employee_id = e.id
+                 WHERE v.source = 'manual'`,
+            );
             await qr.commitTransaction();
         } catch (e) {
             await qr.rollbackTransaction();
@@ -228,7 +286,7 @@ export class PersonalService implements OnApplicationBootstrap {
             await qr.release();
         }
 
-        return { vacancies: vacMap.size, employees: rows.length, unnormalized };
+        return { vacancies: vacMap.size, employees: rows.length, unnormalized, vacations: vacRows.length };
     }
 
     // POST /personal/employees/rebuild — ручной запуск пересборки (ADMIN).
@@ -252,6 +310,89 @@ export class PersonalService implements OnApplicationBootstrap {
         const storeMap = await this.buildStoreNameMap();
         const withNames = employees.map(e => ({ ...e, store_name: this.storeName(e.store_hid, storeMap) }));
         return { status: 'success', employees: withNames };
+    }
+
+    // Возвращает объект-ошибку, если нет прав ADMIN, иначе null.
+    private async requireAdmin(headers: Record<string, string>): Promise<any | null> {
+        const check = await this.checkToken(headers);
+        if (check.status !== 'valid') return check;
+        const flags = await this.flagsRepository.find({ where: { hid: check.userId } });
+        if (!flags.some(f => f.flag === 'ADMIN')) return { status: 'error', message: 'Нет доступа' };
+        return null;
+    }
+
+    // POST /personal/employees/update — редактирование сотрудника (ADMIN).
+    async updateEmployee(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        if (body.id == null) return { status: 'error', message: 'Не указан id' };
+        const emp = await this.lsEmployeeRepository.findOne({ where: { id: Number(body.id) } });
+        if (!emp) return { status: 'error', message: 'Сотрудник не найден' };
+
+        const oldFio = emp.fio;
+        if (body.fio !== undefined) emp.fio = (body.fio || '').trim() || null;
+        if (body.number !== undefined) emp.number = (body.number || '').trim() || null;
+        if (body.position !== undefined) emp.position = (body.position || '').trim() || null;
+        if (body.status !== undefined) emp.status = (body.status || '').trim() || null;
+        if (body.flags !== undefined) emp.flags = (body.flags || '').trim() || null;
+        await this.lsEmployeeRepository.save(emp);
+
+        // Если сменилось ФИО — перепривязать отпуска (связка по ФИО).
+        if (body.fio !== undefined && emp.fio && emp.fio !== oldFio) {
+            await this.lsEmployeeVacationRepository
+                .createQueryBuilder()
+                .update()
+                .set({ fio: emp.fio })
+                .where('employee_id = :id', { id: emp.id })
+                .execute();
+        }
+        return { status: 'success', employee: emp };
+    }
+
+    // GET /personal/employees/vacations?employee_id= — отпуска сотрудника (ADMIN).
+    async getEmployeeVacations(headers: Record<string, string>, employeeId: number) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const vacations = await this.lsEmployeeVacationRepository.find({
+            where: { employee_id: employeeId },
+            order: { period: 'ASC', id: 'ASC' },
+        });
+        return { status: 'success', vacations };
+    }
+
+    // POST /personal/employees/vacations/add — добавить отпуск вручную (ADMIN).
+    async addEmployeeVacation(headers: Record<string, string>, body: any) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const empId = Number(body.employee_id);
+        if (!empId && empId !== 0) return { status: 'error', message: 'Не указан сотрудник' };
+        const emp = await this.lsEmployeeRepository.findOne({ where: { id: empId } });
+        if (!emp) return { status: 'error', message: 'Сотрудник не найден' };
+        if (!body.vacation_start || !body.vacation_end) return { status: 'error', message: 'Укажите даты отпуска' };
+
+        const vac = this.lsEmployeeVacationRepository.create({
+            employee_id: empId,
+            fio: emp.fio,
+            store_hid: emp.store_hid,
+            vacation_start: String(body.vacation_start),
+            vacation_end: String(body.vacation_end),
+            period: body.period != null ? Number(body.period) : null,
+            source: 'manual',
+            status: body.status || null,
+            created_at: new Date(),
+        });
+        await this.lsEmployeeVacationRepository.save(vac);
+        return { status: 'success', vacation: vac };
+    }
+
+    // POST /personal/employees/vacations/delete — удалить отпуск (ADMIN).
+    async deleteEmployeeVacation(headers: Record<string, string>, id: number) {
+        const err = await this.requireAdmin(headers);
+        if (err) return err;
+        const vac = await this.lsEmployeeVacationRepository.findOne({ where: { id } });
+        if (!vac) return { status: 'error', message: 'Отпуск не найден' };
+        await this.lsEmployeeVacationRepository.delete(id);
+        return { status: 'success' };
     }
 
     async getInfo(lsid: string | undefined, headers: Record<string, string>) {
