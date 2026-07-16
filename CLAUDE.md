@@ -57,6 +57,10 @@ client_api/                     # Все API-роуты (prefix: /client_api)
   suggestions/                  # /client_api/suggestions/*
     suggestions.controller.ts   # POST submit (все), GET list (ADMIN/TECH_SUPPORT)
   personal/                     # /client_api/personal/*
+  audit/                        # /client_api/audit/* — журнал вызовов API (ADMIN)
+                                #   audit.service.ts: record() + getLogs/getFilters + создание таблицы
+                                #   audit.controller.ts: GET logs (фильтры/сорт/поиск/пагинация), GET filters
+                                #   audit.module.ts: регистрирует AuditInterceptor как APP_INTERCEPTOR (глобально)
   orders/                       # /client_api/orders/*
   otchet/                       # /client_api/otchet/*
   ostatki/                      # /client_api/ostatki/*
@@ -78,6 +82,15 @@ client_api/                     # Все API-роуты (prefix: /client_api)
 | `suggestions` | Предложения/сообщения от пользователей |
 | `chat_list` | Чаты (hid_from, hid_to) |
 | `chat_bukket` | Сообщения чата. Вложения хранятся в тексте как XML |
+| `api_audit_log` | Журнал вызовов API (hid, method, path, module, action, query_params, body, status_code, ip, user_agent, duration_ms, created_at). Пишется глобальным `AuditInterceptor` |
+
+## Журнал API (аудит вызовов)
+Глобальный `AuditInterceptor` (`src/common/audit.interceptor.ts`) логирует каждый HTTP-запрос в `api_audit_log`
+по событию `res 'finish'` (финальный статус-код + длительность). hid резолвится из куки `auth_token` или
+`Authorization: Bearer`. Пароли/токены → `***`, тело обрезается, multipart → `{_multipart:true}`, свои endpoints
+`/client_api/audit/*` не логируются. Регистрируется как `APP_INTERCEPTOR` в `AuditModule`. Чтение только ADMIN:
+`GET /client_api/audit/logs` (hid/method/module/status/from/to + search + sortBy/sortDir + page/pageSize),
+`GET /client_api/audit/filters`.
 
 ## Паттерн авторизации
 Каждый контроллер:

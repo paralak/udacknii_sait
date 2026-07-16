@@ -18,6 +18,7 @@ import { SuggestionsModule } from './client_api/suggestions/suggestions.module';
 import { FilesModule } from './client_api/files/files.module';
 import { AutoOrdersModule } from './client_api/auto-orders/auto-orders.module';
 import { PushModule } from './client_api/push/push.module';
+import { AuditModule } from './client_api/audit/audit.module';
 
 @Module({
     imports: [
@@ -46,6 +47,7 @@ import { PushModule } from './client_api/push/push.module';
         FilesModule,
         AutoOrdersModule,
         PushModule,
+        AuditModule,
     ],
     controllers: [AppController],
     providers: [AppService],
