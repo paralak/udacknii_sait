@@ -1,6 +1,7 @@
-import {Controller, Get, Post, Patch, Headers, Body} from '@nestjs/common';
+import {Controller, Get, Post, Patch, Headers, Body, Req} from '@nestjs/common';
 import {ClientAPIService} from './client_api.service';
 import {Query} from '@nestjs/common';
+import {Request} from 'express';
 
 @Controller('client_api')
 export class ClientAPIController {
@@ -108,7 +109,7 @@ export class ClientAPIController {
     }
 
     @Post('login')
-    login(@Body() body: { login: string; hashedpassword: string }) {
+    async login(@Body() body: { login: string; hashedpassword: string }, @Req() req: Request) {
         const { login, hashedpassword } = body;
         if (!login || !hashedpassword) {
             return {
@@ -116,7 +117,13 @@ export class ClientAPIController {
                 message: 'Имя пользователя или пароль не предоставлены',
             };
         }
-        return this.clientAPIService.login(login, hashedpassword);
+        const result = await this.clientAPIService.login(login, hashedpassword);
+        // Токена в запросе ещё нет, но hid известен после успешного входа —
+        // прокидываем его в аудит-журнал (AuditInterceptor читает req.auditHid).
+        if (result.status === 'success' && (result as any).userId != null) {
+            (req as any).auditHid = (result as any).userId;
+        }
+        return result;
     }
 
     private extractToken(headers: Record<string, string>): string | null {

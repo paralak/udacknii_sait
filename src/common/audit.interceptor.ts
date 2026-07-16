@@ -28,7 +28,9 @@ export class AuditInterceptor implements NestInterceptor {
         if (module === 'audit') return next.handle();
 
         const headers = (req.headers || {}) as Record<string, string>;
-        const hid = this.auditService.resolveHid(headers);
+        // Токен из куки/Bearer; либо hid, проставленный обработчиком в req.auditHid
+        // (напр. login — токена ещё нет, но hid известен после проверки пароля).
+        const tokenHid = this.auditService.resolveHid(headers);
         const rawIp = (headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || '') as string;
         const ip = rawIp.split(',')[0].trim();
         const userAgent = headers['user-agent'] || null;
@@ -38,6 +40,7 @@ export class AuditInterceptor implements NestInterceptor {
         const write = () => {
             if (logged) return;
             logged = true;
+            const hid = (req as any).auditHid != null ? Number((req as any).auditHid) : tokenHid;
             void this.auditService.record({
                 hid,
                 method: req.method,
